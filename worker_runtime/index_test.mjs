@@ -59,3 +59,9 @@ test("decodeResponsePayload rejects malformed payload", () => {
     /missing array 'headers'/
   );
 });
+
+test("resolveRelativeModuleUrl returns URL for valid relative path", () => {
+  const resolved = __internal.resolveRelativeModuleUrl("./index.mjs");
+  assert.ok(resolved instanceof URL);
+  assert.equal(resolved.pathname.endsWith("/worker_runtime/index.mjs"), true);
+});

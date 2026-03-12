@@ -72,6 +72,13 @@ Open `wrangler.toml` and verify:
 
 - `name` is your desired worker name
 - `main = "worker_runtime/index.mjs"`
+- `account_id = "<your-cloudflare-account-id>"` is set to your real account id
+
+Find your account id with:
+
+```bash
+npx wrangler whoami
+```
 
 ## 7) Validate repo health locally
 
@@ -130,5 +137,6 @@ dune build @doc
 
 - `Program odoc not found`: run `opam install odoc`
 - preview skipped due to token: export `CLOUDFLARE_API_TOKEN`
+- account/auth errors on upload/deploy: verify `account_id` in `wrangler.toml` matches your Cloudflare account
 - wrangler missing: run `npm install`
 - worker artifacts missing: run `dune build @worker-build`

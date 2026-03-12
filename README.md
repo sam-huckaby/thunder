@@ -104,6 +104,24 @@ Create a Cloudflare API token and export it:
 export CLOUDFLARE_API_TOKEN="<your-token>"
 ```
 
+Set your Cloudflare account id in `wrangler.toml`:
+
+```toml
+account_id = "<your-cloudflare-account-id>"
+```
+
+You can find your account id with:
+
+```bash
+npx wrangler whoami
+```
+
+Optional (for CI/overrides), you can also export:
+
+```bash
+export CLOUDFLARE_ACCOUNT_ID="<your-cloudflare-account-id>"
+```
+
 Recommended token capability:
 
 - permissions sufficient for Worker version upload and deploy for your target account/script.
@@ -185,6 +203,8 @@ Legacy metadata using `hash=...` is still read for compatibility.
   - install with `opam install odoc`.
 - preview upload skipped due to token:
   - export `CLOUDFLARE_API_TOKEN` in your shell/CI.
+- preview/deploy fails with account/auth errors:
+  - verify `account_id` in `wrangler.toml` matches your Cloudflare account.
 - `Wrangler not available`:
   - run `npm install` and ensure local wrangler is available.
 - runtime initialization/ABI errors:

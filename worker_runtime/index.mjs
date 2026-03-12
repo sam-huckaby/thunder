@@ -1,11 +1,17 @@
-const DEFAULT_WASM_URL = new URL("../dist/worker/app.wasm", import.meta.url);
-const DEFAULT_COMPILED_RUNTIME_URL = new URL(
-  "../dist/worker/thunder_runtime.mjs",
-  import.meta.url
-);
+const DEFAULT_COMPILED_RUNTIME_RELATIVE_PATH = "../dist/worker/thunder_runtime.mjs";
 
 let wasmInstancePromise = null;
 let adapterPromise = null;
+
+function resolveRelativeModuleUrl(relativePath) {
+  try {
+    const baseUrl = import.meta?.url;
+    if (typeof baseUrl !== "string" || baseUrl === "") return null;
+    return new URL(relativePath, baseUrl);
+  } catch (_error) {
+    return null;
+  }
+}
 
 function bytesToBase64(bytes) {
   let binary = "";
@@ -123,18 +129,25 @@ function resolveShimAdapter() {
 }
 
 async function resolveCompiledModuleAdapter() {
+  const compiledRuntimeUrl = resolveRelativeModuleUrl(
+    DEFAULT_COMPILED_RUNTIME_RELATIVE_PATH
+  );
+  if (!compiledRuntimeUrl) return null;
+
   const existingDocument = globalThis.document;
   const existingCurrentScript = existingDocument?.currentScript;
 
   try {
     if (!globalThis.document) {
-      globalThis.document = { currentScript: { src: DEFAULT_COMPILED_RUNTIME_URL.toString() } };
+      globalThis.document = {
+        currentScript: { src: compiledRuntimeUrl.toString() },
+      };
     } else {
       globalThis.document.currentScript = {
-        src: DEFAULT_COMPILED_RUNTIME_URL.toString(),
+        src: compiledRuntimeUrl.toString(),
       };
     }
-    await import(DEFAULT_COMPILED_RUNTIME_URL.toString());
+    await import(compiledRuntimeUrl.toString());
   } catch (_error) {
     if (existingDocument) {
       existingDocument.currentScript = existingCurrentScript;
@@ -234,7 +247,22 @@ async function loadWasmInstance() {
       return instantiated.instance;
     }
 
-    const bytes = await loadWasmBytesFromUrl(DEFAULT_WASM_URL);
+    const wasmUrlOverride =
+      override instanceof URL
+        ? override.toString()
+        : typeof override === "string"
+          ? override
+          : typeof globalThis.__THUNDER_WASM_URL__ === "string"
+            ? globalThis.__THUNDER_WASM_URL__
+            : null;
+
+    if (!wasmUrlOverride) {
+      throw new Error(
+        "Unable to initialize runtime: compiled module adapter unavailable and no Wasm override provided."
+      );
+    }
+
+    const bytes = await loadWasmBytesFromUrl(wasmUrlOverride);
     const instantiated = await WebAssembly.instantiate(bytes, { env: {} });
     return instantiated.instance;
   })();
@@ -310,6 +338,7 @@ export default {
 };
 
 export const __internal = {
+  resolveRelativeModuleUrl,
   encodeRequest,
   decodeResponsePayload,
   normalizeEnvBindings,

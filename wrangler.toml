@@ -1,5 +1,6 @@
 name = "thunder"
 main = "worker_runtime/index.mjs"
+account_id = "<your-cloudflare-account-id>"
 compatibility_date = "2026-03-12"
 workers_dev = true
 

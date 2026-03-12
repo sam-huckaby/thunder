@@ -17,6 +17,14 @@
 
 `dune build` triggers `@worker-build` and `@preview-publish`.
 
+`wrangler.toml` should include your Cloudflare account id:
+
+```toml
+account_id = "<your-cloudflare-account-id>"
+```
+
+Find your account id with `npx wrangler whoami`.
+
 Preview publish behavior:
 
 1. Validate artifacts exist.
@@ -49,6 +57,7 @@ Preview output parsing:
 Troubleshooting:
 
 - If `CLOUDFLARE_API_TOKEN` is unset, preview publish is skipped (non-fatal).
+- If `account_id` is missing/incorrect, Wrangler preview/deploy can fail with account/authentication errors.
 - If Wrangler is unavailable, preview publish is skipped (non-fatal).
 - If artifacts are missing, preview publish fails with explicit missing path errors.
 
