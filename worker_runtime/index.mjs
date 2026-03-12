@@ -1,6 +1,4 @@
-const DEFAULT_COMPILED_RUNTIME_RELATIVE_PATH = "../dist/worker/thunder_runtime.mjs";
-const FALLBACK_CURRENT_SCRIPT_SRC =
-  "https://thunder.invalid/dist/worker/thunder_runtime.mjs";
+import { compiledRuntimeInitError as bootstrapCompiledRuntimeInitError } from "./compiled_runtime_bootstrap.mjs";
 
 let wasmInstancePromise = null;
 let adapterPromise = null;
@@ -131,42 +129,11 @@ function resolveShimAdapter() {
   };
 }
 
-async function resolveCompiledModuleAdapter() {
-  const compiledRuntimeSrc =
-    resolveRelativeModuleUrl(DEFAULT_COMPILED_RUNTIME_RELATIVE_PATH)?.toString() ??
-    FALLBACK_CURRENT_SCRIPT_SRC;
-
-  const existingDocument = globalThis.document;
-  const existingCurrentScript = existingDocument?.currentScript;
-
-  try {
-    if (!globalThis.document) {
-      globalThis.document = {
-        currentScript: { src: compiledRuntimeSrc },
-      };
-    } else {
-      globalThis.document.currentScript = {
-        src: compiledRuntimeSrc,
-      };
-    }
-    await import("../dist/worker/thunder_runtime.mjs");
-  } catch (error) {
-    compiledModuleInitError = error;
-    if (existingDocument) {
-      existingDocument.currentScript = existingCurrentScript;
-    } else {
-      delete globalThis.document;
-    }
+function resolveCompiledModuleAdapter() {
+  if (bootstrapCompiledRuntimeInitError) {
+    compiledModuleInitError = bootstrapCompiledRuntimeInitError;
     return null;
   }
-
-  if (existingDocument) {
-    existingDocument.currentScript = existingCurrentScript;
-  } else {
-    delete globalThis.document;
-  }
-
-  compiledModuleInitError = null;
 
   if (typeof globalThis.thunder_handle_json !== "function") {
     compiledModuleInitError = new Error(
@@ -174,6 +141,8 @@ async function resolveCompiledModuleAdapter() {
     );
     return null;
   }
+
+  compiledModuleInitError = null;
 
   return {
     async handle(jsonPayload) {
@@ -290,7 +259,7 @@ async function loadAdapter() {
     const shim = resolveShimAdapter();
     if (shim) return shim;
 
-    const compiled = await resolveCompiledModuleAdapter();
+    const compiled = resolveCompiledModuleAdapter();
     if (compiled) return compiled;
 
     const instance = await loadWasmInstance();

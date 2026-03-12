@@ -2,6 +2,7 @@ name = "thunder"
 main = "worker_runtime/index.mjs"
 account_id = "<your-cloudflare-account-id>"
 compatibility_date = "2026-03-12"
+find_additional_modules = true
 workers_dev = true
 
 [observability]
