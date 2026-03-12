@@ -1,7 +1,10 @@
 const DEFAULT_COMPILED_RUNTIME_RELATIVE_PATH = "../dist/worker/thunder_runtime.mjs";
+const FALLBACK_CURRENT_SCRIPT_SRC =
+  "https://thunder.invalid/dist/worker/thunder_runtime.mjs";
 
 let wasmInstancePromise = null;
 let adapterPromise = null;
+let compiledModuleInitError = null;
 
 function resolveRelativeModuleUrl(relativePath) {
   try {
@@ -129,10 +132,9 @@ function resolveShimAdapter() {
 }
 
 async function resolveCompiledModuleAdapter() {
-  const compiledRuntimeUrl = resolveRelativeModuleUrl(
-    DEFAULT_COMPILED_RUNTIME_RELATIVE_PATH
-  );
-  if (!compiledRuntimeUrl) return null;
+  const compiledRuntimeSrc =
+    resolveRelativeModuleUrl(DEFAULT_COMPILED_RUNTIME_RELATIVE_PATH)?.toString() ??
+    FALLBACK_CURRENT_SCRIPT_SRC;
 
   const existingDocument = globalThis.document;
   const existingCurrentScript = existingDocument?.currentScript;
@@ -140,15 +142,16 @@ async function resolveCompiledModuleAdapter() {
   try {
     if (!globalThis.document) {
       globalThis.document = {
-        currentScript: { src: compiledRuntimeUrl.toString() },
+        currentScript: { src: compiledRuntimeSrc },
       };
     } else {
       globalThis.document.currentScript = {
-        src: compiledRuntimeUrl.toString(),
+        src: compiledRuntimeSrc,
       };
     }
-    await import(compiledRuntimeUrl.toString());
-  } catch (_error) {
+    await import("../dist/worker/thunder_runtime.mjs");
+  } catch (error) {
+    compiledModuleInitError = error;
     if (existingDocument) {
       existingDocument.currentScript = existingCurrentScript;
     } else {
@@ -163,7 +166,12 @@ async function resolveCompiledModuleAdapter() {
     delete globalThis.document;
   }
 
+  compiledModuleInitError = null;
+
   if (typeof globalThis.thunder_handle_json !== "function") {
+    compiledModuleInitError = new Error(
+      "Compiled runtime module loaded but did not register thunder_handle_json."
+    );
     return null;
   }
 
@@ -257,8 +265,13 @@ async function loadWasmInstance() {
             : null;
 
     if (!wasmUrlOverride) {
+      const compiledErrorMessage =
+        compiledModuleInitError instanceof Error
+          ? ` Compiled runtime import error: ${compiledModuleInitError.message}`
+          : "";
       throw new Error(
-        "Unable to initialize runtime: compiled module adapter unavailable and no Wasm override provided."
+        "Unable to initialize runtime: compiled module adapter unavailable and no Wasm override provided." +
+          compiledErrorMessage
       );
     }
 
