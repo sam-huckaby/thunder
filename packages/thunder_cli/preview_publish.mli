@@ -1,0 +1,20 @@
+(** Preview publish orchestration. *)
+
+type config = {
+  metadata_path : string;
+  artifacts : string list;
+  force : bool;
+}
+
+type metadata = {
+  artifact_hash : string option;
+  last_upload_at : string option;
+  last_version_id : string option;
+  last_preview_url : string option;
+  raw_wrangler_output : string option;
+}
+
+val read_metadata : metadata_path:string -> metadata
+val write_metadata : metadata_path:string -> metadata -> unit
+
+val run : config -> (string, string) result

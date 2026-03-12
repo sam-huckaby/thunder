@@ -1,0 +1,24 @@
+(library
+ (name thunder_http)
+ (public_name thunder.http)
+ (wrapped false)
+ (libraries thunder.core)
+ (modules
+  method
+  status
+  header
+  headers
+  query
+  cookie
+  request
+  response
+  handler
+  middleware
+  thunder_http))
+
+(library
+ (name thunder)
+ (public_name thunder)
+ (wrapped false)
+ (libraries thunder_http thunder_router thunder_worker)
+ (modules thunder))

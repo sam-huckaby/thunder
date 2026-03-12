@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: 5.2.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install
+      - run: opam install -y wasm_of_ocaml-compiler js_of_ocaml
+      - run: opam install -y odoc
+      - run: bash scripts/check_mli.sh
+      - run: dune build
+      - run: dune runtest
+      - run: dune build @doc
+      - run: dune build @worker-build

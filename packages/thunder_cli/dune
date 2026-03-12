@@ -1,0 +1,11 @@
+(library
+ (name thunder_cli_lib)
+ (libraries unix)
+ (modules artifact_hash wrangler preview_publish deploy_prod))
+
+(executable
+ (name main)
+ (public_name thunder-cli)
+ (package thunder_cli)
+ (modules main)
+ (libraries thunder_cli_lib))

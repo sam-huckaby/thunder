@@ -1,0 +1,15 @@
+{
+  "name": "thunder",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "wrangler": "wrangler",
+    "dev": "wrangler dev",
+    "preview": "wrangler versions upload",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^3.114.0"
+  }
+}

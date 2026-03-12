@@ -1,0 +1,15 @@
+(test
+ (name unit_tests)
+ (libraries thunder.core thunder_http thunder_router thunder_worker thunder))
+
+(test
+ (name integration_tests)
+ (libraries thunder_http thunder_router thunder_worker thunder))
+
+(test
+ (name cli_tests)
+ (libraries thunder_cli_lib))
+
+(test
+ (name example_smoke_tests)
+ (libraries thunder thunder.worker))

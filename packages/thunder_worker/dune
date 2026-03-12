@@ -1,0 +1,14 @@
+(library
+ (name thunder_worker)
+ (public_name thunder.worker)
+ (wrapped false)
+ (libraries thunder_http thunder.core)
+ (modules worker runtime))
+
+(executable
+ (name wasm_entry)
+ (public_name thunder-wasm-entry)
+ (package thunder_worker)
+ (modes byte)
+ (modules wasm_entry)
+ (libraries thunder_http thunder_router thunder_worker js_of_ocaml))
