@@ -2,7 +2,7 @@
 
 This guide takes you from "just cloned" to "deployed on Cloudflare Workers".
 
-Note: with the current repo wiring, deploy uses the built-in Thunder runtime entrypoint app. The `examples/hello_site` example demonstrates the same API shape locally.
+Note: with the current repo wiring, deploy uses the built-in Thunder runtime entrypoint app defined in `packages/thunder_worker/wasm_entry.ml`. The `examples/*` apps demonstrate API usage but are not the deployed app by default.
 
 ## 1) Clone and enter the repo
 
@@ -80,7 +80,20 @@ Find your account id with:
 npx wrangler whoami
 ```
 
-## 7) Validate repo health locally
+## 7) Put your site code in the right place
+
+Your deployed routes live in:
+
+- `packages/thunder_worker/wasm_entry.ml`
+
+In that file, edit the `app = Router.router [ ... ]` route list to define your site endpoints and responses.
+
+Important:
+
+- `worker_runtime/index.mjs` is runtime bridge code (request/response adapter), not where app routes are authored.
+- `examples/*` are reference apps for local learning, not wired into deploy by default.
+
+## 8) Validate repo health locally
 
 ```bash
 bash scripts/check_mli.sh
@@ -90,7 +103,9 @@ dune runtest
 
 `dune build` also triggers preview logic; without `CLOUDFLARE_API_TOKEN`, preview upload is skipped non-fatally.
 
-## 8) Build deployable worker artifacts
+If preview upload prints `version_id=...` but says preview URL was not found, upload still succeeded; only URL parsing from Wrangler output was missing.
+
+## 9) Build deployable worker artifacts
 
 ```bash
 dune build @worker-build
@@ -101,7 +116,7 @@ Expected outputs are under `_build/default/dist/worker/`:
 - `thunder_runtime.mjs`
 - `thunder_runtime.assets/*.wasm`
 
-## 9) Deploy to production (explicit)
+## 10) Deploy to production (explicit)
 
 ```bash
 CONFIRM_PROD_DEPLOY=1 dune build @deploy-prod
@@ -109,7 +124,7 @@ CONFIRM_PROD_DEPLOY=1 dune build @deploy-prod
 
 Production deploy is intentionally guarded and will fail safely if `CONFIRM_PROD_DEPLOY` is not set to `1`.
 
-## 10) Verify deployment
+## 11) Verify deployment
 
 Use Wrangler output URL, or inspect deployments:
 
@@ -119,6 +134,8 @@ npx wrangler deployments list
 ```
 
 Then open your Worker URL in a browser and hit `/`.
+
+Tip: if preview URL parsing is missing in CLI output, inspect `.thunder/preview.json` (`last_version_id`, `raw_wrangler_output`) and use `npx wrangler deployments list`.
 
 ## Useful commands
 
