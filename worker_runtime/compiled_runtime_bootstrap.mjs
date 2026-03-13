@@ -18,28 +18,32 @@ const compiledRuntimeSrc =
 
 const existingDocument = globalThis.document;
 const existingCurrentScript = existingDocument?.currentScript;
+const isNodeProcess = Boolean(globalThis.process?.versions?.node);
+const shouldSkipBootstrap = globalThis.__THUNDER_SKIP_BOOTSTRAP__ === true;
 
 let compiledRuntimeInitError = null;
 
-try {
-  if (!globalThis.document) {
-    globalThis.document = {
-      currentScript: { src: compiledRuntimeSrc },
-    };
-  } else {
-    globalThis.document.currentScript = {
-      src: compiledRuntimeSrc,
-    };
-  }
+if (!isNodeProcess && !shouldSkipBootstrap) {
+  try {
+    if (!globalThis.document) {
+      globalThis.document = {
+        currentScript: { src: compiledRuntimeSrc },
+      };
+    } else {
+      globalThis.document.currentScript = {
+        src: compiledRuntimeSrc,
+      };
+    }
 
-  await import("../dist/worker/thunder_runtime.mjs");
-} catch (error) {
-  compiledRuntimeInitError = error;
-} finally {
-  if (existingDocument) {
-    existingDocument.currentScript = existingCurrentScript;
-  } else {
-    delete globalThis.document;
+    await import("../dist/worker/thunder_runtime.mjs");
+  } catch (error) {
+    compiledRuntimeInitError = error;
+  } finally {
+    if (existingDocument) {
+      existingDocument.currentScript = existingCurrentScript;
+    } else {
+      delete globalThis.document;
+    }
   }
 }
 

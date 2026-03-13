@@ -1,7 +1,7 @@
 (library
  (name thunder_cli_lib)
  (libraries unix)
- (modules artifact_hash wrangler preview_publish deploy_prod))
+ (modules artifact_hash wrangler deploy_layout preview_publish deploy_prod))
 
 (executable
  (name main)

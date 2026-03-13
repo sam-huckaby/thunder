@@ -98,6 +98,8 @@ Convenience exports:
 
 Thunder uses Wrangler for preview uploads and production deploys.
 
+Root `wrangler.toml` is the source template Thunder uses to generate the deploy config at `_build/default/deploy/wrangler.toml`.
+
 Create a Cloudflare API token and export it:
 
 ```bash
@@ -142,10 +144,11 @@ dune build
 What happens:
 
 1. `@worker-build` generates worker artifacts.
-2. Preview pipeline computes artifact hash.
-3. If unchanged, upload is skipped.
-4. If changed and token is present, Wrangler upload runs.
-5. Metadata is written to `.thunder/preview.json`.
+2. Thunder stages a deploy-ready tree under `_build/default/deploy/`.
+3. Preview pipeline computes artifact hash.
+4. If unchanged, upload is skipped.
+5. If changed and token is present, Wrangler upload runs against the generated deploy config.
+6. Metadata is written to `.thunder/preview.json`.
 
 ### Force preview upload
 
@@ -163,9 +166,10 @@ Without `CONFIRM_PROD_DEPLOY=1`, production deploy fails safely.
 
 ## Artifact Layout
 
-- compiled OCaml runtime module: `dist/worker/thunder_runtime.mjs`
-- companion Wasm chunks: `dist/worker/thunder_runtime.assets/*.wasm`
-- worker host runtime: `worker_runtime/index.mjs`
+- build artifact module: `_build/default/dist/worker/thunder_runtime.mjs`
+- build artifact Wasm chunks: `_build/default/dist/worker/thunder_runtime.assets/*.wasm`
+- generated deploy config: `_build/default/deploy/wrangler.toml`
+- generated deploy runtime host: `_build/default/deploy/worker_runtime/index.mjs`
 - preview metadata: `.thunder/preview.json`
 
 ## Preview Metadata Fields
@@ -205,6 +209,8 @@ Legacy metadata using `hash=...` is still read for compatibility.
   - export `CLOUDFLARE_API_TOKEN` in your shell/CI.
 - preview/deploy fails with account/auth errors:
   - verify `account_id` in `wrangler.toml` matches your Cloudflare account.
+- deploy/runtime module path errors:
+  - run `dune build` and confirm `_build/default/deploy/` contains staged Worker files.
 - `Wrangler not available`:
   - run `npm install` and ensure local wrangler is available.
 - runtime initialization/ABI errors:

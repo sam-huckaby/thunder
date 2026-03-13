@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { __internal } from "./index.mjs";
+globalThis.__THUNDER_SKIP_BOOTSTRAP__ = true;
+const { __internal } = await import("./index.mjs");
 
 test("encodeRequest preserves method/url/headers/body", async () => {
   const request = new Request("https://example.com/echo?x=1", {

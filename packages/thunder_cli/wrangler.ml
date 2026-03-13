@@ -43,8 +43,10 @@ let available () =
   | { status = Unix.WEXITED 0; _ } -> true
   | _ -> false
 
-let preview_upload () = run [ "versions"; "upload" ]
-let deploy_prod () = run [ "deploy" ]
+let preview_upload ~config_path =
+  run [ "--config"; config_path; "versions"; "upload" ]
+
+let deploy_prod ~config_path = run [ "--config"; config_path; "deploy" ]
 
 let trim_token token =
   let is_trim_char = function

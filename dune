@@ -22,19 +22,25 @@
  (alias preview-publish)
  (deps
   (alias worker-build)
-  worker_runtime/index.mjs
-  dist/worker/thunder_runtime.mjs
-  (glob_files dist/worker/thunder_runtime.assets/*)
-  %{exe:packages/thunder_cli/main.exe})
+   worker_runtime/index.mjs
+   worker_runtime/compiled_runtime_bootstrap.mjs
+   dist/worker/thunder_runtime.mjs
+   (glob_files dist/worker/thunder_runtime.assets/*)
+   %{dep:wrangler.toml}
+   %{exe:packages/thunder_cli/main.exe})
  (locks thunder_preview_publish)
  (action
   (run
    %{exe:packages/thunder_cli/main.exe}
    preview-publish
-   --metadata
-   .thunder/preview.json
-   --wasm
-   dist/worker/thunder_runtime.mjs
+    --metadata
+    .thunder/preview.json
+    --wrangler-template
+    %{dep:wrangler.toml}
+    --deploy-dir
+    deploy
+    --wasm
+    dist/worker/thunder_runtime.mjs
    --artifact
    dist/worker/thunder_runtime.assets
    --runtime
@@ -44,16 +50,22 @@
  (alias deploy-prod)
  (deps
   (alias worker-build)
-  worker_runtime/index.mjs
-  dist/worker/thunder_runtime.mjs
-  (glob_files dist/worker/thunder_runtime.assets/*)
-  %{exe:packages/thunder_cli/main.exe})
+   worker_runtime/index.mjs
+   worker_runtime/compiled_runtime_bootstrap.mjs
+   dist/worker/thunder_runtime.mjs
+   (glob_files dist/worker/thunder_runtime.assets/*)
+   %{dep:wrangler.toml}
+   %{exe:packages/thunder_cli/main.exe})
  (action
   (run
    %{exe:packages/thunder_cli/main.exe}
-   deploy-prod
-   --wasm
-   dist/worker/thunder_runtime.mjs
+    deploy-prod
+    --wrangler-template
+    %{dep:wrangler.toml}
+    --deploy-dir
+    deploy
+    --wasm
+    dist/worker/thunder_runtime.mjs
    --artifact
    dist/worker/thunder_runtime.assets
    --runtime
@@ -65,5 +77,6 @@
 
 (rule
  (alias runtest)
- (deps worker_runtime/index_test.mjs worker_runtime/index.mjs)
+ (deps worker_runtime/index_test.mjs worker_runtime/index.mjs
+       worker_runtime/compiled_runtime_bootstrap.mjs)
  (action (run node --test worker_runtime/index_test.mjs)))

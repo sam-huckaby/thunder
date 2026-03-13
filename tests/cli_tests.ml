@@ -17,6 +17,25 @@ let with_temp_path prefix f =
   Fun.protect ~finally:(fun () -> if Sys.file_exists path then Sys.remove path)
     (fun () -> f path)
 
+let rec rm_rf path =
+  if Sys.file_exists path then
+    if Sys.is_directory path then (
+      Sys.readdir path
+      |> Array.iter (fun name -> rm_rf (Filename.concat path name));
+      Unix.rmdir path)
+    else Sys.remove path
+
+let with_temp_dir prefix f =
+  let base = Filename.temp_file prefix ".tmp" in
+  if Sys.file_exists base then Sys.remove base;
+  Unix.mkdir base 0o755;
+  Fun.protect ~finally:(fun () -> rm_rf base) (fun () -> f base)
+
+let write_file path content =
+  let oc = open_out path in
+  Fun.protect ~finally:(fun () -> close_out_noerr oc)
+    (fun () -> output_string oc content)
+
 let () =
   with_temp_file "thunder-artifact" "hello" (fun artifact ->
       match Thunder_cli_lib.Artifact_hash.compute [ artifact ] with
@@ -70,7 +89,24 @@ let () =
         | Ok value -> value
         | Error e -> failwith e
       in
-      with_temp_path "thunder-preview" (fun metadata_path ->
+      with_temp_dir "thunder-preview" (fun dir ->
+          let metadata_path = Filename.concat dir "preview.txt" in
+          let runtime_dir = Filename.concat dir "worker_runtime" in
+          let dist_dir = Filename.concat dir "dist/worker" in
+          let assets_dir = Filename.concat dist_dir "thunder_runtime.assets" in
+          let runtime_path = Filename.concat runtime_dir "index.mjs" in
+          let bootstrap_path = Filename.concat runtime_dir "compiled_runtime_bootstrap.mjs" in
+          let wasm_path = Filename.concat dist_dir "thunder_runtime.mjs" in
+          let wrangler_path = Filename.concat dir "wrangler.toml" in
+          Unix.mkdir runtime_dir 0o755;
+          Unix.mkdir (Filename.concat dir "dist") 0o755;
+          Unix.mkdir dist_dir 0o755;
+          Unix.mkdir assets_dir 0o755;
+          write_file runtime_path "export default {}\n";
+          write_file bootstrap_path "export const compiledRuntimeInitError = null;\n";
+          write_file wasm_path "compiled-runtime\n";
+          write_file (Filename.concat assets_dir "chunk.wasm") "wasm\n";
+          write_file wrangler_path "name = \"test\"\nmain = \"worker_runtime/index.mjs\"\n";
           Thunder_cli_lib.Preview_publish.write_metadata ~metadata_path
             {
               artifact_hash = Some hash;
@@ -83,7 +119,11 @@ let () =
             Thunder_cli_lib.Preview_publish.run
               {
                 metadata_path;
-                artifacts = [ artifact ];
+                artifacts = [ artifact; runtime_path; bootstrap_path; wasm_path; wrangler_path; assets_dir ];
+                deploy_dir = Filename.concat dir "deploy";
+                wrangler_template_path = wrangler_path;
+                runtime_path;
+                compiled_runtime_path = wasm_path;
                 force = false;
               }
           with

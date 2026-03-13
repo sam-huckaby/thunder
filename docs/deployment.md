@@ -2,9 +2,10 @@
 
 ## Build outputs
 
-- Compiled OCaml runtime artifact: `dist/worker/thunder_runtime.mjs` (generated via `wasm_of_ocaml`)
-- Companion Wasm chunks: `dist/worker/thunder_runtime.assets/*.wasm`
-- Worker runtime host: `worker_runtime/index.mjs`
+- Compiled OCaml runtime artifact: `_build/default/dist/worker/thunder_runtime.mjs` (generated via `wasm_of_ocaml`)
+- Companion Wasm chunks: `_build/default/dist/worker/thunder_runtime.assets/*.wasm`
+- Generated deploy config: `_build/default/deploy/wrangler.toml`
+- Generated Worker runtime host: `_build/default/deploy/worker_runtime/index.mjs`
 - Preview metadata: `.thunder/preview.json`
 
 ## Dune aliases
@@ -17,7 +18,9 @@
 
 `dune build` triggers `@worker-build` and `@preview-publish`.
 
-`wrangler.toml` should include your Cloudflare account id:
+Root `wrangler.toml` is the source template Thunder uses to generate `_build/default/deploy/wrangler.toml`.
+
+It should include your Cloudflare account id:
 
 ```toml
 account_id = "<your-cloudflare-account-id>"
@@ -28,10 +31,11 @@ Find your account id with `npx wrangler whoami`.
 Preview publish behavior:
 
 1. Validate artifacts exist.
-2. Compute stable hash.
-3. Compare with previous metadata hash.
-4. Skip upload if unchanged (unless forced).
-5. Upload preview via Wrangler when changed.
+2. Stage a deploy-ready Worker tree under `_build/default/deploy/`.
+3. Compute stable hash.
+4. Compare with previous metadata hash.
+5. Skip upload if unchanged (unless forced).
+6. Upload preview via Wrangler using the generated deploy config.
 
 Preview metadata format (`.thunder/preview.json`, line-based key/value):
 
@@ -68,3 +72,5 @@ Run:
 `CONFIRM_PROD_DEPLOY=1 dune build @deploy-prod`
 
 Production deploy fails safely when confirmation is missing.
+
+Thunder runs Wrangler against `_build/default/deploy/wrangler.toml`, not the root template directly.

@@ -74,6 +74,8 @@ Open `wrangler.toml` and verify:
 - `main = "worker_runtime/index.mjs"`
 - `account_id = "<your-cloudflare-account-id>"` is set to your real account id
 
+Thunder uses this root file as a template and generates the actual deploy config at `_build/default/deploy/wrangler.toml`.
+
 Find your account id with:
 
 ```bash
@@ -103,6 +105,8 @@ dune runtest
 
 `dune build` also triggers preview logic; without `CLOUDFLARE_API_TOKEN`, preview upload is skipped non-fatally.
 
+It also stages a deploy-ready Worker tree under `_build/default/deploy/`, which is what Thunder points Wrangler at for preview and production deploys.
+
 If preview upload prints `version_id=...` but says preview URL was not found, upload still succeeded; only URL parsing from Wrangler output was missing.
 
 ## 9) Build deployable worker artifacts
@@ -115,6 +119,14 @@ Expected outputs are under `_build/default/dist/worker/`:
 
 - `thunder_runtime.mjs`
 - `thunder_runtime.assets/*.wasm`
+
+Expected deploy-ready files are under `_build/default/deploy/`:
+
+- `wrangler.toml`
+- `worker_runtime/index.mjs`
+- `worker_runtime/compiled_runtime_bootstrap.mjs`
+- `dist/worker/thunder_runtime.mjs`
+- `dist/worker/thunder_runtime.assets/*.wasm`
 
 ## 10) Deploy to production (explicit)
 
@@ -157,3 +169,4 @@ dune build @doc
 - account/auth errors on upload/deploy: verify `account_id` in `wrangler.toml` matches your Cloudflare account
 - wrangler missing: run `npm install`
 - worker artifacts missing: run `dune build @worker-build`
+- deploy tree missing or stale: run `dune build` and inspect `_build/default/deploy/`

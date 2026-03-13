@@ -3,6 +3,10 @@
 type config = {
   metadata_path : string;
   artifacts : string list;
+  deploy_dir : string;
+  wrangler_template_path : string;
+  runtime_path : string;
+  compiled_runtime_path : string;
   force : bool;
 }
 

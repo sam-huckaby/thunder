@@ -1,6 +1,10 @@
 type config = {
   metadata_path : string;
   artifacts : string list;
+  deploy_dir : string;
+  wrangler_template_path : string;
+  runtime_path : string;
+  compiled_runtime_path : string;
   force : bool;
 }
 
@@ -109,37 +113,45 @@ let run config =
     match Artifact_hash.compute config.artifacts with
     | Error e -> Error e
     | Ok hash ->
-        let metadata = read_metadata ~metadata_path:config.metadata_path in
-        let changed =
-          match metadata.artifact_hash with
-          | None -> true
-          | Some old_hash -> old_hash <> hash
-        in
-        if (not changed) && not config.force then
-          Ok "Preview publish skipped (artifact hash unchanged)."
-        else if Sys.getenv_opt "CLOUDFLARE_API_TOKEN" = None then
-          Ok
-            "Preview publish skipped (CLOUDFLARE_API_TOKEN is not set in this environment)."
-        else if not (Wrangler.available ()) then
-          Ok "Preview publish skipped (Wrangler not available in this environment)."
-        else
-          let result = Wrangler.preview_upload () in
-          match result.status with
-          | Unix.WEXITED 0 ->
-              let info = Wrangler.parse_preview_info ~stdout:result.stdout ~stderr:result.stderr in
-              let raw_output = truncate_output (String.trim (result.stdout ^ "\n" ^ result.stderr)) in
-              let updated =
-                {
-                  artifact_hash = Some hash;
-                  last_upload_at = Some (now_iso8601 ());
-                  last_version_id = info.version_id;
-                  last_preview_url = info.preview_url;
-                  raw_wrangler_output = Some raw_output;
-                }
-              in
-              write_metadata ~metadata_path:config.metadata_path updated;
-              Ok (make_success_message info)
-          | status ->
-              Error
-                ("Wrangler preview upload failed: " ^ string_of_status status ^ "\n"
-               ^ result.stderr)
+        match
+          Deploy_layout.stage ~deploy_dir:config.deploy_dir
+            ~wrangler_template_path:config.wrangler_template_path
+            ~runtime_path:config.runtime_path
+            ~compiled_runtime_path:config.compiled_runtime_path
+        with
+        | Error e -> Error e
+        | Ok staged ->
+            let metadata = read_metadata ~metadata_path:config.metadata_path in
+            let changed =
+              match metadata.artifact_hash with
+              | None -> true
+              | Some old_hash -> old_hash <> hash
+            in
+            if (not changed) && not config.force then
+              Ok "Preview publish skipped (artifact hash unchanged)."
+            else if Sys.getenv_opt "CLOUDFLARE_API_TOKEN" = None then
+              Ok
+                "Preview publish skipped (CLOUDFLARE_API_TOKEN is not set in this environment)."
+            else if not (Wrangler.available ()) then
+              Ok "Preview publish skipped (Wrangler not available in this environment)."
+            else
+              let result = Wrangler.preview_upload ~config_path:staged.config_path in
+              match result.status with
+              | Unix.WEXITED 0 ->
+                  let info = Wrangler.parse_preview_info ~stdout:result.stdout ~stderr:result.stderr in
+                  let raw_output = truncate_output (String.trim (result.stdout ^ "\n" ^ result.stderr)) in
+                  let updated =
+                    {
+                      artifact_hash = Some hash;
+                      last_upload_at = Some (now_iso8601 ());
+                      last_version_id = info.version_id;
+                      last_preview_url = info.preview_url;
+                      raw_wrangler_output = Some raw_output;
+                    }
+                  in
+                  write_metadata ~metadata_path:config.metadata_path updated;
+                  Ok (make_success_message info)
+              | status ->
+                  Error
+                    ("Wrangler preview upload failed: " ^ string_of_status status ^ "\n"
+                   ^ result.stderr)
