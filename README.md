@@ -4,6 +4,8 @@ Thunder is an OCaml-first edge framework for Cloudflare Workers.
 
 It gives you a typed request/response API, router, middleware model, and a deploy workflow where normal `dune build` can publish preview versions when artifacts change.
 
+If you are starting from a fresh clone and want the quickest path to a working test app, begin with `KICKSTART.md`.
+
 ## What Thunder is
 
 - Edge-native request/response framework for Workers.
@@ -51,6 +53,8 @@ dune runtest
 ```bash
 dune build @doc
 ```
+
+For the first real deploy walkthrough, including where your app code lives, see `KICKSTART.md`.
 
 ## First App Walkthrough (`examples/hello_site`)
 
@@ -110,6 +114,7 @@ Set your Cloudflare account id in `wrangler.toml`:
 
 ```toml
 account_id = "<your-cloudflare-account-id>"
+compatibility_flags = ["nodejs_compat"]
 ```
 
 You can find your account id with:
@@ -164,12 +169,21 @@ CONFIRM_PROD_DEPLOY=1 dune build @deploy-prod
 
 Without `CONFIRM_PROD_DEPLOY=1`, production deploy fails safely.
 
+### Runtime model
+
+Thunder now ships a single compiled-runtime path for Workers. The staged deploy tree contains the host, ABI shim, compiled runtime backend, compiled runtime module, and prebuilt Wasm assets needed at runtime.
+
+The app you deploy from this repo is defined in `packages/thunder_worker/wasm_entry.ml`.
+
 ## Artifact Layout
 
 - build artifact module: `_build/default/dist/worker/thunder_runtime.mjs`
 - build artifact Wasm chunks: `_build/default/dist/worker/thunder_runtime.assets/*.wasm`
+- build manifest: `_build/default/dist/worker/manifest.json`
 - generated deploy config: `_build/default/deploy/wrangler.toml`
 - generated deploy runtime host: `_build/default/deploy/worker_runtime/index.mjs`
+- generated deploy ABI shim: `_build/default/deploy/worker_runtime/app_abi.mjs`
+- generated deploy compiled runtime backend: `_build/default/deploy/worker_runtime/compiled_runtime_backend.mjs`
 - preview metadata: `.thunder/preview.json`
 
 ## Preview Metadata Fields
@@ -226,8 +240,10 @@ Legacy metadata using `hash=...` is still read for compatibility.
 
 ## Additional Docs
 
+- `KICKSTART.md`
 - `docs/architecture.md`
 - `docs/supported_features.md`
 - `docs/deployment.md`
+- `docs/runtime_parity_matrix.md`
 - `docs/examples.md`
 - `docs/release_checklist.md`

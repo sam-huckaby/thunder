@@ -8,6 +8,7 @@ let create_env bindings = bindings
 let create_ctx values = values
 
 let env_binding env key = env |> List.find_opt (fun (k, _) -> k = key) |> Option.map snd
+let ctx_has_feature ctx feature = List.exists (( = ) feature) ctx
 
 let with_env req env =
   let updated_ctx = Thunder_core.Context.add (Request.context_map req) env_key env in

@@ -19,11 +19,11 @@ let parse_repeated args key =
   in
   loop [] args
 
-let runtime_bootstrap_path runtime =
-  Filename.concat (Filename.dirname runtime) "compiled_runtime_bootstrap.mjs"
+let runtime_manifest_path wasm =
+  Filename.concat (Filename.dirname wasm) "manifest.json"
 
-let default_artifacts wasm runtime wrangler_template extra =
-  let base = [ wasm; runtime; runtime_bootstrap_path runtime; wrangler_template ] in
+let default_artifacts wasm wrangler_template extra =
+  let base = [ runtime_manifest_path wasm; wrangler_template ] in
   let with_assets =
     let assets_dir = Filename.concat (Filename.dirname wasm) "thunder_runtime.assets" in
     if Sys.file_exists assets_dir then assets_dir :: base else base
@@ -33,7 +33,7 @@ let default_artifacts wasm runtime wrangler_template extra =
 let run_preview args =
   let metadata = parse_kv args "--metadata" ".thunder/preview.json" in
   let wasm = parse_kv args "--wasm" "dist/worker/thunder_runtime.mjs" in
-  let runtime = parse_kv args "--runtime" "worker_runtime/index.mjs" in
+  let _runtime = parse_kv args "--runtime" "worker_runtime/index.mjs" in
   let wrangler_template = parse_kv args "--wrangler-template" "wrangler.toml" in
   let deploy_dir = parse_kv args "--deploy-dir" "deploy" in
   let extras = parse_repeated args "--artifact" in
@@ -41,11 +41,10 @@ let run_preview args =
     Thunder_cli_lib.Preview_publish.
       {
         metadata_path = metadata;
-        artifacts = default_artifacts wasm runtime wrangler_template extras;
+        artifacts = default_artifacts wasm wrangler_template extras;
         deploy_dir;
         wrangler_template_path = wrangler_template;
-        runtime_path = runtime;
-        compiled_runtime_path = wasm;
+        manifest_path = runtime_manifest_path wasm;
         force = force_preview ();
       }
   in
@@ -59,15 +58,15 @@ let run_preview args =
 
 let run_deploy_prod args =
   let wasm = parse_kv args "--wasm" "dist/worker/thunder_runtime.mjs" in
-  let runtime = parse_kv args "--runtime" "worker_runtime/index.mjs" in
+  let _runtime = parse_kv args "--runtime" "worker_runtime/index.mjs" in
   let wrangler_template = parse_kv args "--wrangler-template" "wrangler.toml" in
   let deploy_dir = parse_kv args "--deploy-dir" "deploy" in
   let extras = parse_repeated args "--artifact" in
   match
     Thunder_cli_lib.Deploy_prod.run
-      ~artifacts:(default_artifacts wasm runtime wrangler_template extras)
-      ~deploy_dir ~wrangler_template_path:wrangler_template ~runtime_path:runtime
-      ~compiled_runtime_path:wasm
+      ~artifacts:(default_artifacts wasm wrangler_template extras)
+      ~deploy_dir ~wrangler_template_path:wrangler_template
+      ~manifest_path:(runtime_manifest_path wasm)
   with
   | Ok msg ->
       print_endline msg;

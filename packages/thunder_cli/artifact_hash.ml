@@ -32,6 +32,11 @@ let compute artifacts =
     Ok combined
   with Failure msg -> Error msg
 
+let compute_with_manifest ~manifest_path artifacts =
+  match Deploy_manifest.referenced_paths ~manifest_path with
+  | Error e -> Error e
+  | Ok manifest_artifacts -> compute (manifest_artifacts @ artifacts)
+
 let read_previous_hash ~metadata_path =
   if not (Sys.file_exists metadata_path) then None
   else

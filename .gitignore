@@ -1,3 +1,13 @@
+# Build artifacts
 _build/
 node_modules/
+
+# Thunder-specific configurations
 .thunder/
+
+# IDE stuff
+.DS_Store
+
+# Implementation details that only the agent needs
+docs/runtime_parity_matrix.md
+PLAN.md

@@ -4,14 +4,15 @@ type staged = {
   deploy_dir : string;
   config_path : string;
   runtime_path : string;
+  app_abi_path : string;
   bootstrap_path : string;
   compiled_runtime_path : string;
+  manifest_path : string;
   assets_dir : string;
 }
 
 val stage :
   deploy_dir:string ->
   wrangler_template_path:string ->
-  runtime_path:string ->
-  compiled_runtime_path:string ->
+  manifest_path:string ->
   (staged, string) result

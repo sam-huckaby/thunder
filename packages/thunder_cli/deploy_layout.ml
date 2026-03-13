@@ -2,8 +2,10 @@ type staged = {
   deploy_dir : string;
   config_path : string;
   runtime_path : string;
+  app_abi_path : string;
   bootstrap_path : string;
   compiled_runtime_path : string;
+  manifest_path : string;
   assets_dir : string;
 }
 
@@ -30,6 +32,21 @@ let write_file path contents =
     (fun () -> output_string oc contents)
 
 let copy_file ~src ~dst = write_file dst (read_file src)
+
+let normalize_path path =
+  let absolute = String.length path > 0 && path.[0] = '/' in
+  let parts = String.split_on_char '/' path in
+  let rec fold acc = function
+    | [] -> List.rev acc
+    | "" :: rest -> fold acc rest
+    | "." :: rest -> fold acc rest
+    | ".." :: rest ->
+        let acc = match acc with [] -> [] | _ :: tl -> tl in
+        fold acc rest
+    | part :: rest -> fold (part :: acc) rest
+  in
+  let joined = String.concat "/" (fold [] parts) in
+  if absolute then "/" ^ joined else joined
 
 let rec copy_dir ~src ~dst =
   ensure_dir dst;
@@ -78,43 +95,65 @@ let render_wrangler_config template =
   in
   String.concat "\n" with_modules
 
-let stage ~deploy_dir ~wrangler_template_path ~runtime_path ~compiled_runtime_path =
-  let bootstrap_src =
-    Filename.concat (Filename.dirname runtime_path) "compiled_runtime_bootstrap.mjs"
-  in
-  let assets_src =
-    Filename.concat (Filename.dirname compiled_runtime_path) "thunder_runtime.assets"
-  in
-  let required_paths =
-    [ wrangler_template_path; runtime_path; bootstrap_src; compiled_runtime_path; assets_src ]
-  in
-  let missing = required_paths |> List.filter (fun path -> not (Sys.file_exists path)) in
-  if missing <> [] then
-    Error
-      ("Missing deploy input(s): " ^ String.concat ", " missing
-     ^ ". Run dune build to regenerate deploy assets.")
-  else
-    let deploy_runtime_dir = Filename.concat deploy_dir "worker_runtime" in
-    let deploy_dist_dir = Filename.concat deploy_dir "dist/worker" in
-    let deploy_assets_dir = Filename.concat deploy_dist_dir "thunder_runtime.assets" in
-    let config_path = Filename.concat deploy_dir "wrangler.toml" in
-    let runtime_dst = Filename.concat deploy_runtime_dir "index.mjs" in
-    let bootstrap_dst = Filename.concat deploy_runtime_dir "compiled_runtime_bootstrap.mjs" in
-    let compiled_dst = Filename.concat deploy_dist_dir "thunder_runtime.mjs" in
-    let config_contents = read_file wrangler_template_path |> render_wrangler_config in
-    ensure_dir deploy_runtime_dir;
-    ensure_dir deploy_dist_dir;
-    copy_file ~src:runtime_path ~dst:runtime_dst;
-    copy_file ~src:bootstrap_src ~dst:bootstrap_dst;
-    copy_file ~src:compiled_runtime_path ~dst:compiled_dst;
-    copy_dir ~src:assets_src ~dst:deploy_assets_dir;
-    write_file config_path config_contents;
-    Ok
-      {
-        deploy_dir;
-        config_path;
-        runtime_path = runtime_dst;
-        bootstrap_path = bootstrap_dst;
-        compiled_runtime_path = compiled_dst;
-        assets_dir = deploy_assets_dir;
-      }
+let stage ~deploy_dir ~wrangler_template_path ~manifest_path =
+  match Deploy_manifest.parse ~manifest_path with
+  | Error e -> Error e
+  | Ok manifest ->
+      let manifest_src = manifest_path in
+      let manifest_src_dir = Filename.dirname manifest_src in
+      let resolve relative = normalize_path (Filename.concat manifest_src_dir relative) in
+      let runtime_src = resolve manifest.runtime_entry in
+      let app_abi_src = resolve manifest.app_abi in
+      let generated_wasm_assets_src = resolve manifest.generated_wasm_assets in
+      let compiled_backend_src = resolve manifest.compiled_runtime_backend in
+      let bootstrap_src = resolve manifest.bootstrap_module in
+      let compiled_runtime_src = resolve manifest.compiled_runtime in
+      let assets_src = resolve manifest.assets_dir in
+      let required_paths =
+        [ wrangler_template_path; manifest_src; runtime_src; app_abi_src;
+          generated_wasm_assets_src; compiled_backend_src; bootstrap_src;
+          compiled_runtime_src; assets_src ]
+      in
+      let missing = required_paths |> List.filter (fun path -> not (Sys.file_exists path)) in
+      if missing <> [] then
+        Error
+          ("Missing deploy input(s): " ^ String.concat ", " missing
+         ^ ". Run dune build to regenerate deploy assets.")
+      else
+        let deploy_manifest_dir = Filename.concat deploy_dir "dist/worker" in
+        let manifest_dst = Filename.concat deploy_manifest_dir "manifest.json" in
+        let manifest_dst_dir = Filename.dirname manifest_dst in
+        let target_from_manifest relative =
+          normalize_path (Filename.concat manifest_dst_dir relative)
+        in
+        let config_path = Filename.concat deploy_dir "wrangler.toml" in
+        let runtime_dst = target_from_manifest manifest.runtime_entry in
+        let app_abi_dst = target_from_manifest manifest.app_abi in
+        let generated_wasm_assets_dst =
+          target_from_manifest manifest.generated_wasm_assets
+        in
+        let compiled_backend_dst = target_from_manifest manifest.compiled_runtime_backend in
+        let compiled_dst = target_from_manifest manifest.compiled_runtime in
+        let assets_dst = target_from_manifest manifest.assets_dir in
+        let bootstrap_dst = target_from_manifest manifest.bootstrap_module in
+        let config_contents = read_file wrangler_template_path |> render_wrangler_config in
+        copy_file ~src:runtime_src ~dst:runtime_dst;
+        copy_file ~src:app_abi_src ~dst:app_abi_dst;
+        copy_file ~src:generated_wasm_assets_src ~dst:generated_wasm_assets_dst;
+        copy_file ~src:compiled_backend_src ~dst:compiled_backend_dst;
+        copy_file ~src:bootstrap_src ~dst:bootstrap_dst;
+        copy_file ~src:compiled_runtime_src ~dst:compiled_dst;
+        copy_file ~src:manifest_src ~dst:manifest_dst;
+        copy_dir ~src:assets_src ~dst:assets_dst;
+        write_file config_path config_contents;
+        Ok
+          {
+            deploy_dir;
+            config_path;
+            runtime_path = runtime_dst;
+            app_abi_path = app_abi_dst;
+            bootstrap_path = bootstrap_dst;
+            compiled_runtime_path = compiled_dst;
+            manifest_path = manifest_dst;
+            assets_dir = assets_dst;
+          }

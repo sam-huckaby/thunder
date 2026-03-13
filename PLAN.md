@@ -1,3 +1,4 @@
+Current active phase: complete - runtime architecture settled for current release scope
 
 # Thunder MVP Backlog
 
@@ -73,8 +74,14 @@ A task is done only when:
 - Phase 11 — CI and quality gates: **complete**
 - Phase 12 — MVP stabilization and release prep: **complete**
 - Phase 13 — Runtime wiring and preview metadata hardening: **complete**
+- Phase 14 — Thunder-owned runtime ABI v2: **complete**
+- Phase 15 — Host/shim split: **complete**
+- Phase 16 — Manifest-driven artifacts: **complete**
+- Phase 17 — Explicit runtime backend: **complete**
+- Phase 18 — Canary rollout and rollback controls: **complete**
+- Phase 19 — Legacy runtime removal: **complete**
 
-Earliest incomplete phase and active target: **none** (all planned phases complete).
+Earliest incomplete phase and active target: **none** (all planned runtime phases complete).
     
 
 ---
@@ -1813,7 +1820,7 @@ When context gets tight, preserve these invariants in summaries:
 5. `dune build` must auto-publish preview when artifacts changed.
     
 6. Production deploy must remain explicit.
-    
+     
 7. Core architecture order is:
     
     - core/context
@@ -1829,8 +1836,18 @@ When context gets tight, preserve these invariants in summaries:
     - worker adapter
         
     - CLI/deploy
-        
+         
     - examples/tests/docs
+
+8. Current active phase is Phase 14 until `PLAN.md` explicitly advances it.
+
+9. The first production-ready Thunder-owned ABI rollout remains JSON-based.
+
+10. Do not reintroduce compiler side effects as the public runtime contract.
+
+11. Preview and production deploys must use the same staged deploy shape.
+
+12. Compaction must not change the active phase or ABI direction without updating `PLAN.md`.
         
 
 When resuming after compaction, the agent should first:
@@ -2038,6 +2055,515 @@ Verified:
 Next:
 - exercise a real Wrangler preview upload in an environment with `CLOUDFLARE_API_TOKEN`
 - continue post-MVP ergonomics and feature expansion planning
+
+---
+
+# Phase 14 — Thunder-owned runtime ABI v2
+
+## Goal
+
+Define and freeze a Thunder-owned, versioned, JSON-based runtime ABI so deployed edge apps target Thunder's contract rather than compiler side effects.
+
+## Tasks
+
+### 14.1 Mark active phase and freeze direction in planning/docs
+
+Update planning and architecture docs so compaction cycles cannot silently drift the project back toward side-effect-driven runtime loading.
+
+Need:
+
+- explicit active phase marker at top of `PLAN.md`
+- statement that first production rollout remains JSON-based
+- statement that Thunder owns the runtime contract
+- statement that preview/prod share one staged deploy shape
+
+Acceptance:
+
+- `PLAN.md` points to Phase 14 as active phase
+- docs and plan clearly state ABI ownership and rollout direction
+
+### 14.2 Define ABI v2 init/request/response schemas
+
+Specify Thunder ABI v2 payloads for:
+
+- `init(init_payload) -> init_result`
+- `handle(request_payload) -> response_payload`
+
+Must include:
+
+- `abi_version`
+- request method/url/repeated headers/body buffering strategy
+- binary body via `body_base64`
+- env bindings
+- ctx capabilities
+- response status/repeated headers/body
+- initialization capabilities and diagnostics
+
+Acceptance:
+
+- ABI v2 schema is documented in `docs/architecture.md`
+- versioning and compatibility notes are explicit
+
+### 14.3 Close parity gap between documented ABI and deployed runtime
+
+Rework deployed OCaml entrypoint so it uses the shared typed runtime bridge instead of bespoke JSON parsing that drops fidelity.
+
+Need:
+
+- route deployed runtime path through `packages/thunder_worker/runtime.ml`
+- preserve headers, env, ctx, and buffered body fidelity
+- preserve response header multiplicity and binary-safe response path
+
+Acceptance:
+
+- deployed runtime behavior matches documented ABI fields
+- tests prove parity for headers/env/ctx/body/cookies/redirects/errors
+
+### 14.4 Define ABI error taxonomy
+
+Create stable categories for runtime failures:
+
+- init failure
+- request decode failure
+- app execution failure
+- response decode failure
+- ABI mismatch / version mismatch
+
+Acceptance:
+
+- errors are documented with intended user-facing behavior
+- runtime code has one clear error vocabulary to implement in later phases
+
+### 14.5 Add ABI fixture and parity tests
+
+Create tests for:
+
+- request payload fixture shape
+- response payload fixture shape
+- repeated headers and `set-cookie`
+- env binding preservation
+- ctx capability preservation
+- binary body encode/decode path
+- invalid ABI/version mismatch behavior
+
+Acceptance:
+
+- `dune runtest` covers ABI parity cases
+- Node runtime tests and OCaml runtime tests share the same fixture expectations
+
+### 14.6 Add checkpoint note and first implementation slice
+
+Record which part of ABI v2 is implemented first and what remains for Phase 15.
+
+Acceptance:
+
+- checkpoint note added after Phase 14 completion
+- first concrete implementation slice for Phase 15 is listed
+
+## Checkpoint: Phase 14 complete
+Completed:
+- marked Phase 14 as the active ABI migration target and added compaction guardrails so the project keeps the Thunder-owned JSON ABI direction
+- documented ABI v2 direction, init/request/response schema targets, and runtime error taxonomy in `docs/architecture.md`
+- reworked the deployed OCaml entrypoint to route through the shared typed runtime bridge so headers, env bindings, ctx features, and buffered body payloads are preserved
+- added ABI fixture tests for request/response payload shape, ABI version rejection, repeated request headers, env/ctx parity, and initial `app_abi.mjs` init/handle behavior
+
+Verified:
+- `node --test worker_runtime/index_test.mjs`
+- `opam exec -- dune runtest`
+- `opam exec -- dune build`
+- docs/interfaces updated
+
+Next:
+- continue Phase 15 by moving more runtime lifecycle responsibility into `worker_runtime/app_abi.mjs`
+- reduce `worker_runtime/index.mjs` toward a thin Cloudflare-specific host that delegates all app runtime behavior to the shim
+
+---
+
+# Phase 15 — Host/shim split
+
+## Goal
+
+Make the Cloudflare Worker host minimal and route all runtime lifecycle behavior through a Thunder-owned shim with an explicit `init` + `handle` contract.
+
+## Tasks
+
+### 15.1 Introduce `worker_runtime/app_abi.mjs`
+
+Create a Thunder-owned shim that becomes the only runtime module contract used by the Worker host.
+
+Need:
+
+- explicit `init`
+- explicit `handle`
+- internal cache for initialized app runtime
+- no host-facing global registration assumptions
+
+Acceptance:
+
+- host imports only `app_abi.mjs`
+- runtime lifecycle is centralized in the shim
+
+### 15.2 Simplify `worker_runtime/index.mjs`
+
+Reduce the Worker host to:
+
+- Fetch API request decode
+- one lazy `init` path
+- one `handle` invocation path
+- response decode and error handling
+
+Acceptance:
+
+- host no longer probes multiple adapter styles
+- host remains small and Cloudflare-specific only
+
+### 15.3 Add temporary compatibility backend inside the shim
+
+During migration, allow the shim to wrap the legacy global-registration backend internally without exposing that behavior as the public contract.
+
+Acceptance:
+
+- legacy support exists only inside the shim
+- host stays ABI-v2-oriented
+
+### 15.4 Add host/shim tests
+
+Test:
+
+- one-time init caching
+- request handling after init
+- init failure behavior
+- compatibility backend behavior during transition
+
+Acceptance:
+
+- Node host tests validate the new split
+- behavior is documented for later legacy removal
+
+## Checkpoint: Phase 15 complete
+Completed:
+- moved runtime lifecycle ownership into `worker_runtime/app_abi.mjs`, including init-state caching, compatibility backend handling, compiled-runtime adapter resolution, and Wasm fallback loading
+- reduced `worker_runtime/index.mjs` to a thinner Cloudflare-specific host responsible primarily for request encode/response decode, init payload construction, and error mapping
+- expanded Node runtime tests to cover shim init caching, internal adapter caching, ABI version rejection, and request/response handling through the new shim surface
+
+Verified:
+- `node --test worker_runtime/index_test.mjs`
+- `opam exec -- dune runtest`
+- `opam exec -- dune build`
+- docs/interfaces updated
+
+Next:
+- continue Phase 16 by expanding the manifest schema and using it as the source of truth for deploy staging and artifact hashing
+- reduce remaining hardcoded artifact assumptions in deploy tooling as manifest coverage expands
+
+---
+
+# Phase 16 — Manifest-driven artifacts
+
+## Goal
+
+Make deployment packaging explicit and deterministic through a Thunder-owned manifest rather than hardcoded filenames and compiler-output assumptions.
+
+## Tasks
+
+### 16.1 Define manifest schema
+
+Create `dist/worker/manifest.json` with:
+
+- ABI version
+- app entry path
+- asset paths
+- artifact hash
+- capabilities/features
+
+Acceptance:
+
+- manifest schema is documented
+- manifest format is versioned independently from Thunder package version
+
+### 16.2 Generate manifest during `@worker-build`
+
+Need:
+
+- Dune rule emits manifest alongside runtime artifacts
+- manifest references every deploy-critical file
+
+Acceptance:
+
+- `dune build @worker-build` emits manifest consistently
+
+### 16.3 Stage deploy tree from manifest
+
+Update deployment staging to copy only manifest-declared files into `_build/default/deploy/`.
+
+Acceptance:
+
+- preview and prod both stage from manifest
+- staging no longer depends on hardcoded file lists beyond manifest presence
+
+### 16.4 Hash manifest + referenced files
+
+Replace ad hoc artifact hashing with manifest-driven hashing.
+
+Acceptance:
+
+- unchanged manifest+artifact content yields stable hash
+- preview skip behavior remains intact
+
+### 16.5 Add packaging validation tests
+
+Test:
+
+- missing manifest failure
+- missing referenced artifact failure
+- stable staging shape
+- preview metadata remains compatible
+
+Acceptance:
+
+- CLI and packaging tests cover manifest-driven deploy flow
+
+## Checkpoint: Phase 16 complete
+Completed:
+- added `dist/worker/manifest.json` as a Thunder-owned artifact manifest describing the runtime entry, ABI shim, compiled runtime module, assets directory, and compatibility backend
+- made deploy staging and validation manifest-driven in `thunder_cli`, so preview and production staging now resolve runtime files from the manifest instead of hardcoded paths
+- switched artifact hashing to include the manifest plus all manifest-referenced artifacts and updated CLI tests to validate manifest parsing and staging behavior
+- taught the runtime shim to use manifest-derived defaults for init metadata such as `app_id`, `asset_base_url`, and compatibility backend information
+
+Verified:
+- `node --test worker_runtime/index_test.mjs`
+- `opam exec -- dune runtest`
+- `opam exec -- dune build`
+- docs/interfaces updated
+
+Next:
+- continue Phase 17 by replacing the legacy compatibility backend with a more explicit runtime export contract behind the shim
+- reduce remaining bootstrap/global-registration assumptions from the steady-state runtime path
+
+---
+
+# Phase 17 — Explicit runtime backend
+
+## Goal
+
+Replace legacy side-effect registration with an explicit runtime backend behind the Thunder ABI shim.
+
+## Tasks
+
+### 17.1 Design explicit runtime export strategy
+
+Determine how compiled app artifacts expose init/handle behavior without requiring host-visible globals.
+
+Need:
+
+- explicit runtime export or generated wrapper strategy
+- compatibility notes for the OCaml/Wasm toolchain
+
+Acceptance:
+
+- strategy is documented and technically validated
+
+### 17.2 Remove steady-state dependence on `document.currentScript`
+
+Eliminate asset resolution hacks from the normal runtime path.
+
+Acceptance:
+
+- normal runtime path does not mutate `document.currentScript`
+- Cloudflare global-scope restrictions are respected
+
+### 17.3 Keep initialization request-time safe
+
+Ensure runtime init happens only in Cloudflare-allowed contexts and is cached for reuse.
+
+Acceptance:
+
+- no forbidden global-scope async boot logic remains in steady-state path
+- init and request handling are deterministic
+
+### 17.4 Add explicit-backend tests
+
+Test:
+
+- init success
+- ABI mismatch
+- asset resolution failure
+- app execution failure
+- repeated request handling with cached init
+
+Acceptance:
+
+- explicit backend passes parity tests introduced in Phase 14
+
+## Checkpoint: Phase 17 complete
+Completed:
+- introduced explicit runtime backend modules in `worker_runtime/legacy_runtime_backend.mjs` and `worker_runtime/wasm_runtime_backend.mjs`, and moved backend selection behind `worker_runtime/app_abi.mjs`
+- removed remaining host-side global/bootstrap probing from `worker_runtime/index.mjs`, leaving the Worker host focused on Cloudflare request/response translation and error mapping only
+- extended the manifest schema and deploy staging so explicit backend modules are staged and treated as part of the deployable runtime contract
+- expanded Node runtime tests and CLI manifest tests to cover explicit backend selection, manifest fields, and shim-driven initialization behavior
+
+Verified:
+- `node --test worker_runtime/index_test.mjs`
+- `opam exec -- dune runtest`
+- `opam exec -- dune build`
+- docs/interfaces updated
+
+Next:
+- continue Phase 18 by defining canary/rollback controls for switching between compatibility and explicit backend paths during rollout
+- add response-parity and rollout validation guidance before removing the legacy compatibility backend entirely
+
+---
+
+# Phase 18 — Canary rollout and rollback controls
+
+## Goal
+
+Prove production readiness with a reversible migration path before fully removing legacy runtime behavior.
+
+## Tasks
+
+### 18.1 Add backend selection controls for rollout
+
+Need:
+
+- controlled switch between legacy compatibility backend and explicit ABI backend
+- clear operator-facing documentation
+
+Acceptance:
+
+- preview canary can switch backends without code churn
+
+Progress note:
+
+- Worker env binding `THUNDER_RUNTIME_BACKEND` now feeds `requested_backend` into Thunder ABI init payload so canary and rollback backend selection can happen without code edits.
+
+### 18.2 Build parity matrix across representative apps
+
+Cover:
+
+- GET
+- POST JSON
+- redirect
+- repeated cookies
+- env bindings
+- 404/500 behavior
+- binary body
+
+Acceptance:
+
+- response parity results are recorded and reproducible
+
+Progress note:
+
+- parity expectations are now tracked in `docs/runtime_parity_matrix.md` and mapped to existing integration/runtime tests plus manual preview-canary validation.
+
+### 18.3 Add real preview smoke coverage
+
+Need:
+
+- CI or release-gated environment with Wrangler credentials
+- smoke verification against built artifacts and staged deploy tree
+
+Acceptance:
+
+- preview canary path is exercised outside purely local tests
+
+Progress note:
+
+- added `scripts/preview_smoke.sh` and `.github/workflows/preview-smoke.yml` as the release-gated shape for credentialed preview canary execution.
+- local environment check shows `CLOUDFLARE_API_TOKEN` is currently unavailable here, so the remaining Phase 18 gate is running the smoke path in a credentialed environment and recording results.
+
+Validation result:
+
+- credentialed preview smoke has now been validated against existing Worker `muddy-wave-5c2d` for both `auto` and `legacy-global-registration`.
+- rollback to `auto` was confirmed after explicit backend canary validation.
+
+## Checkpoint: Phase 18 complete
+Completed:
+- added backend selection controls through `THUNDER_RUNTIME_BACKEND` and threaded them through the Thunder ABI init path
+- added parity tracking in `docs/runtime_parity_matrix.md` plus release-gated smoke tooling in `scripts/preview_smoke.sh` and `.github/workflows/preview-smoke.yml`
+- validated credentialed preview canaries for `auto` and `legacy-global-registration` against existing Worker `muddy-wave-5c2d`
+- confirmed rollback by returning backend selection to `auto`
+
+Verified:
+- `bash scripts/preview_smoke.sh auto` (with existing Worker override)
+- `bash scripts/preview_smoke.sh legacy-global-registration` (with existing Worker override)
+- `env -u CLOUDFLARE_API_TOKEN opam exec -- dune runtest`
+- `opam exec -- dune build @worker-build`
+
+Next:
+- continue Phase 19 by removing the legacy compatibility runtime path from the supported contract
+- simplify runtime/bootstrap code and docs around the remaining production path
+
+### 18.4 Define rollback and deprecation notes
+
+Acceptance:
+
+- docs describe how to revert during rollout
+- conditions for Phase 19 switch are explicit
+
+Progress note:
+
+- rollback guidance now centers on resetting `THUNDER_RUNTIME_BACKEND` to `auto`, and Phase 19 switch criteria are captured in `docs/runtime_parity_matrix.md`.
+
+---
+
+# Phase 19 — Legacy runtime removal
+
+## Goal
+
+Finalize Thunder around one production runtime contract and remove the temporary compatibility path.
+
+## Tasks
+
+### 19.1 Remove legacy bootstrap/probing code
+
+Acceptance:
+
+- no host-side adapter probing remains
+- no legacy global-registration path remains as a supported contract
+
+### 19.2 Simplify docs and troubleshooting
+
+Need:
+
+- one runtime model
+- one deploy model
+- one set of expected artifacts
+
+Acceptance:
+
+- docs/examples reflect only the ABI-v2 path
+
+### 19.3 Final production hardening pass
+
+Audit:
+
+- runtime errors
+- deploy packaging
+- preview/prod parity
+- public API/docs alignment
+
+Acceptance:
+
+- release checklist updated for the new runtime architecture
+- legacy transition notes archived or removed as appropriate
+
+## Checkpoint: Phase 19 complete
+Completed:
+- removed the legacy compatibility and alternate runtime backend paths from the supported contract, leaving a single compiled-runtime production path
+- simplified manifest, deploy staging, smoke validation, and docs around one runtime model and one deploy model
+- verified the current runtime path in credentialed Cloudflare preview using `scripts/preview_smoke.sh auto`
+
+Verified:
+- `env -u CLOUDFLARE_API_TOKEN opam exec -- dune runtest`
+- `node --test worker_runtime/index_test.mjs`
+- `opam exec -- dune build @worker-build`
+- `THUNDER_SMOKE_WORKER_NAME="muddy-wave-5c2d" bash scripts/preview_smoke.sh auto`
+
+Next:
+- preserve the single-runtime architecture in future work
+- treat any new runtime-path expansion as a new planned phase rather than reintroducing compatibility layers implicitly
 
 ## Checkpoint: Phase 7 complete
 Completed:

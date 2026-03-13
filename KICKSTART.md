@@ -2,7 +2,7 @@
 
 This guide takes you from "just cloned" to "deployed on Cloudflare Workers".
 
-Note: with the current repo wiring, deploy uses the built-in Thunder runtime entrypoint app defined in `packages/thunder_worker/wasm_entry.ml`. The `examples/*` apps demonstrate API usage but are not the deployed app by default.
+Important: the app Thunder deploys from this repo lives in `packages/thunder_worker/wasm_entry.ml`. The `examples/*` apps are reference examples for learning the API; they are not the deployed app by default.
 
 ## 1) Clone and enter the repo
 
@@ -73,6 +73,7 @@ Open `wrangler.toml` and verify:
 - `name` is your desired worker name
 - `main = "worker_runtime/index.mjs"`
 - `account_id = "<your-cloudflare-account-id>"` is set to your real account id
+- `compatibility_flags = ["nodejs_compat"]` remains enabled for the current generated runtime output
 
 Thunder uses this root file as a template and generates the actual deploy config at `_build/default/deploy/wrangler.toml`.
 
@@ -82,20 +83,43 @@ Find your account id with:
 npx wrangler whoami
 ```
 
-## 7) Put your site code in the right place
+## 7) Build your first test app
 
-Your deployed routes live in:
+Thunder deploys the route list defined in:
 
 - `packages/thunder_worker/wasm_entry.ml`
 
-In that file, edit the `app = Router.router [ ... ]` route list to define your site endpoints and responses.
+Start by editing the `Router.router [ ... ]` list in that file.
+
+Minimal example:
+
+```ocaml
+let app =
+  Router.router
+    [
+      Router.get "/"
+        (Handler.handler (fun _ -> Response.html "<h1>Hello from Thunder</h1>"));
+      Router.get "/health"
+        (Handler.handler (fun _ -> Response.json "{\"ok\":true}"));
+    ]
+```
+
+Good first routes to add while learning:
+
+- `/` for HTML output
+- `/health` for a simple JSON check
+- `/echo` for request body testing
+
+## 8) Know what not to edit
 
 Important:
 
 - `worker_runtime/index.mjs` is runtime bridge code (request/response adapter), not where app routes are authored.
+- `worker_runtime/app_abi.mjs` and `worker_runtime/compiled_runtime_backend.mjs` are Thunder runtime internals, not app code.
 - `examples/*` are reference apps for local learning, not wired into deploy by default.
+- `_build/default/` files are generated outputs; do not hand-edit them.
 
-## 8) Validate repo health locally
+## 9) Validate repo health locally
 
 ```bash
 bash scripts/check_mli.sh
@@ -109,7 +133,21 @@ It also stages a deploy-ready Worker tree under `_build/default/deploy/`, which 
 
 If preview upload prints `version_id=...` but says preview URL was not found, upload still succeeded; only URL parsing from Wrangler output was missing.
 
-## 9) Build deployable worker artifacts
+## 10) Understand what `dune build` produces
+
+`dune build` already does the normal thing you want:
+
+- builds the OCaml app runtime
+- stages the deploy-ready Worker tree
+- uploads a preview when deployable artifacts changed and credentials are present
+
+If you only want the deploy artifacts without the preview step, use:
+
+```bash
+dune build @worker-build
+```
+
+## 11) Build deployable worker artifacts
 
 ```bash
 dune build @worker-build
@@ -119,16 +157,30 @@ Expected outputs are under `_build/default/dist/worker/`:
 
 - `thunder_runtime.mjs`
 - `thunder_runtime.assets/*.wasm`
+- `manifest.json`
 
 Expected deploy-ready files are under `_build/default/deploy/`:
 
 - `wrangler.toml`
 - `worker_runtime/index.mjs`
+- `worker_runtime/app_abi.mjs`
+- `worker_runtime/compiled_runtime_backend.mjs`
 - `worker_runtime/compiled_runtime_bootstrap.mjs`
 - `dist/worker/thunder_runtime.mjs`
+- `dist/worker/manifest.json`
 - `dist/worker/thunder_runtime.assets/*.wasm`
 
-## 10) Deploy to production (explicit)
+## 12) Preview smoke validation
+
+Before production deploy, validate the runtime path against an existing Worker you control:
+
+```bash
+THUNDER_SMOKE_WORKER_NAME="your-existing-worker" bash scripts/preview_smoke.sh auto
+```
+
+This uploads a preview version and checks the current default routes (`/`, `/health`, `/echo`, `/missing`).
+
+## 13) Deploy to production (explicit)
 
 ```bash
 CONFIRM_PROD_DEPLOY=1 dune build @deploy-prod
@@ -136,7 +188,7 @@ CONFIRM_PROD_DEPLOY=1 dune build @deploy-prod
 
 Production deploy is intentionally guarded and will fail safely if `CONFIRM_PROD_DEPLOY` is not set to `1`.
 
-## 11) Verify deployment
+## 14) Verify deployment
 
 Use Wrangler output URL, or inspect deployments:
 
@@ -170,3 +222,5 @@ dune build @doc
 - wrangler missing: run `npm install`
 - worker artifacts missing: run `dune build @worker-build`
 - deploy tree missing or stale: run `dune build` and inspect `_build/default/deploy/`
+- preview smoke needs an existing Worker name: set `THUNDER_SMOKE_WORKER_NAME`
+- deployed app is not the example you edited: make sure you changed `packages/thunder_worker/wasm_entry.ml`

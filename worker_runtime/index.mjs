@@ -1,8 +1,8 @@
-import { compiledRuntimeInitError as bootstrapCompiledRuntimeInitError } from "./compiled_runtime_bootstrap.mjs";
-
-let wasmInstancePromise = null;
-let adapterPromise = null;
-let compiledModuleInitError = null;
+import {
+  handle as handleAppAbi,
+  init as initAppAbi,
+  isRuntimeInitialized,
+} from "./app_abi.mjs";
 
 function resolveRelativeModuleUrl(relativePath) {
   try {
@@ -118,157 +118,6 @@ function decodeResponsePayload(payload) {
   throw new Error("Runtime payload must include 'body' or 'body_base64'.");
 }
 
-function resolveShimAdapter() {
-  const shim = globalThis.__THUNDER_WASM_SHIM__;
-  if (!shim || typeof shim.handle !== "function") return null;
-
-  return {
-    async handle(jsonPayload) {
-      return shim.handle(jsonPayload);
-    },
-  };
-}
-
-function resolveCompiledModuleAdapter() {
-  if (bootstrapCompiledRuntimeInitError) {
-    compiledModuleInitError = bootstrapCompiledRuntimeInitError;
-    return null;
-  }
-
-  if (typeof globalThis.thunder_handle_json !== "function") {
-    compiledModuleInitError = new Error(
-      "Compiled runtime module loaded but did not register thunder_handle_json."
-    );
-    return null;
-  }
-
-  compiledModuleInitError = null;
-
-  return {
-    async handle(jsonPayload) {
-      return globalThis.thunder_handle_json(jsonPayload);
-    },
-  };
-}
-
-function resolveWasmAdapter(instance) {
-  const exports = instance.exports ?? {};
-  const handler = exports.thunder_handle_json ?? exports.thunder_handle_fetch_json;
-
-  if (typeof handler !== "function") {
-    const available = Object.keys(exports).sort().join(", ");
-    throw new Error(
-      "Unsupported Wasm ABI: expected export thunder_handle_json or thunder_handle_fetch_json. " +
-        "Available exports: [" +
-        available +
-        "]"
-    );
-  }
-
-  return {
-    async handle(jsonPayload) {
-      try {
-        return handler(jsonPayload);
-      } catch (error) {
-        throw new Error(
-          "Wasm handler invocation failed. Ensure exported function accepts JSON payload and returns JSON.",
-          { cause: error }
-        );
-      }
-    },
-  };
-}
-
-async function loadWasmBytesFromUrl(url) {
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch Wasm artifact from ${url.toString()}: ${response.status}`);
-  }
-
-  const bytes = new Uint8Array(await response.arrayBuffer());
-  if (bytes.length < 8) {
-    throw new Error("Wasm artifact is too small to be valid.");
-  }
-
-  const magic = [0x00, 0x61, 0x73, 0x6d];
-  for (let i = 0; i < magic.length; i += 1) {
-    if (bytes[i] !== magic[i]) {
-      throw new Error(
-        "Wasm artifact is not a valid WebAssembly binary. Verify the worker build output path and artifact type."
-      );
-    }
-  }
-
-  return bytes;
-}
-
-async function loadWasmInstance() {
-  if (wasmInstancePromise) return wasmInstancePromise;
-
-  wasmInstancePromise = (async () => {
-    const override = globalThis.__THUNDER_WASM_MODULE__;
-
-    if (override instanceof WebAssembly.Instance) {
-      return override;
-    }
-
-    if (override instanceof WebAssembly.Module) {
-      const instantiated = await WebAssembly.instantiate(override, { env: {} });
-      return instantiated instanceof WebAssembly.Instance
-        ? instantiated
-        : instantiated.instance;
-    }
-
-    if (override instanceof ArrayBuffer || ArrayBuffer.isView(override)) {
-      const instantiated = await WebAssembly.instantiate(override, { env: {} });
-      return instantiated.instance;
-    }
-
-    const wasmUrlOverride =
-      override instanceof URL
-        ? override.toString()
-        : typeof override === "string"
-          ? override
-          : typeof globalThis.__THUNDER_WASM_URL__ === "string"
-            ? globalThis.__THUNDER_WASM_URL__
-            : null;
-
-    if (!wasmUrlOverride) {
-      const compiledErrorMessage =
-        compiledModuleInitError instanceof Error
-          ? ` Compiled runtime import error: ${compiledModuleInitError.message}`
-          : "";
-      throw new Error(
-        "Unable to initialize runtime: compiled module adapter unavailable and no Wasm override provided." +
-          compiledErrorMessage
-      );
-    }
-
-    const bytes = await loadWasmBytesFromUrl(wasmUrlOverride);
-    const instantiated = await WebAssembly.instantiate(bytes, { env: {} });
-    return instantiated.instance;
-  })();
-
-  return wasmInstancePromise;
-}
-
-async function loadAdapter() {
-  if (adapterPromise) return adapterPromise;
-
-  adapterPromise = (async () => {
-    const shim = resolveShimAdapter();
-    if (shim) return shim;
-
-    const compiled = resolveCompiledModuleAdapter();
-    if (compiled) return compiled;
-
-    const instance = await loadWasmInstance();
-    return resolveWasmAdapter(instance);
-  })();
-
-  return adapterPromise;
-}
-
 function makeInitFailureResponse(error) {
   const message =
     error instanceof Error ? error.message : "Unknown Wasm runtime initialization failure.";
@@ -286,24 +135,21 @@ function makeRuntimeFailureResponse(error) {
   });
 }
 
+function makeInitPayload(env) {
+  return {};
+}
+
 async function invokeRuntime(request, env, ctx) {
-  const adapter = await loadAdapter();
-  const payload = await encodeRequest(request, env, ctx);
-  const payloadText = JSON.stringify(payload);
-
-  const rawResult = await adapter.handle(payloadText);
-  const decoded =
-    typeof rawResult === "string"
-      ? JSON.parse(rawResult)
-      : rawResult && typeof rawResult === "object"
-        ? rawResult
-        : null;
-
-  if (!decoded) {
-    throw new Error("Runtime returned an empty or unsupported payload value.");
-  }
-
-  return decodeResponsePayload(decoded);
+  const initPayload = makeInitPayload(env);
+  await initAppAbi({ initPayload });
+  return handleAppAbi({
+    request,
+    env,
+    ctx,
+    initPayload,
+    encodeRequest,
+    decodeResponsePayload,
+  });
 }
 
 export default {
@@ -311,7 +157,7 @@ export default {
     try {
       return await invokeRuntime(request, env, ctx);
     } catch (error) {
-      if (!adapterPromise || !wasmInstancePromise) {
+      if (!isRuntimeInitialized()) {
         return makeInitFailureResponse(error);
       }
       return makeRuntimeFailureResponse(error);
@@ -325,4 +171,5 @@ export const __internal = {
   decodeResponsePayload,
   normalizeEnvBindings,
   normalizeCtxFeatures,
+  makeInitPayload,
 };

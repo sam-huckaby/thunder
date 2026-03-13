@@ -10,6 +10,10 @@ let app =
       Router.post "/echo"
         (Handler.handler (fun req -> Response.json (Request.body_string req)));
       Router.get "/json" (Handler.handler (fun _ -> Response.json "{\"ok\":true}"));
+      Router.get "/headers"
+        (Handler.handler (fun req ->
+             let count = List.length (Headers.get_all (Request.headers req) "x-test") in
+             Response.text (string_of_int count)));
       Router.get "/redirect"
         (Handler.handler (fun _ -> Response.redirect "https://example.com/next"));
       Router.get "/cookies"
@@ -22,6 +26,10 @@ let app =
              let env = Worker.env req in
              let value = Option.value (Worker.env_binding env "GREETING") ~default:"none" in
              Response.text value));
+      Router.get "/ctx"
+        (Handler.handler (fun req ->
+             let has_wait_until = Worker.ctx_has_feature (Worker.ctx req) "waitUntil" in
+             Response.text (if has_wait_until then "waitUntil" else "missing")));
       Router.get "/boom" (Handler.handler (fun _ -> failwith "boom"));
     ]
 
@@ -43,6 +51,9 @@ let with_method (request : Runtime.decoded_request) meth =
 
 let with_body (request : Runtime.decoded_request) body =
   { request with Runtime.body = body }
+
+let with_headers (request : Runtime.decoded_request) headers =
+  { request with Runtime.headers = headers }
 
 let () =
   let r = run (base_request "/") in
@@ -79,6 +90,18 @@ let () =
 let () =
   let r = run (base_request "/env") in
   assert_eq "env binding" "hi" r.body
+
+let () =
+  let r = run (base_request "/ctx") in
+  assert_eq "ctx feature" "waitUntil" r.body
+
+let () =
+  let r =
+    run
+      (base_request "/headers"
+      |> fun request -> with_headers request [ ("x-test", "a"); ("X-Test", "b") ])
+  in
+  assert_eq "request repeated headers" "2" r.body
 
 let () =
   let r = run (base_request "/missing") in

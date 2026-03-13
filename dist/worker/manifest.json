@@ -1,0 +1,11 @@
+{
+  "abi_version": 1,
+  "app_id": "thunder-app",
+  "runtime_entry": "../../worker_runtime/index.mjs",
+  "app_abi": "../../worker_runtime/app_abi.mjs",
+  "generated_wasm_assets": "../../worker_runtime/generated_wasm_assets.mjs",
+  "compiled_runtime_backend": "../../worker_runtime/compiled_runtime_backend.mjs",
+  "bootstrap_module": "../../worker_runtime/compiled_runtime_bootstrap.mjs",
+  "compiled_runtime": "thunder_runtime.mjs",
+  "assets_dir": "thunder_runtime.assets"
+}

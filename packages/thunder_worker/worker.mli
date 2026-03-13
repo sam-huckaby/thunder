@@ -7,6 +7,7 @@ val create_env : (string * string) list -> env
 val create_ctx : string list -> ctx
 
 val env_binding : env -> string -> string option
+val ctx_has_feature : ctx -> string -> bool
 
 val env : Request.t -> env
 val ctx : Request.t -> ctx
