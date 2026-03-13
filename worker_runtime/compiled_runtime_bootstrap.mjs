@@ -23,6 +23,17 @@ const shouldSkipBootstrap = globalThis.__THUNDER_SKIP_BOOTSTRAP__ === true;
 
 let compiledRuntimeInitError = null;
 
+async function waitForGlobalHandler({ timeoutMs = 1500, intervalMs = 10 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() <= deadline) {
+    if (typeof globalThis.thunder_handle_json === "function") {
+      return true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  return typeof globalThis.thunder_handle_json === "function";
+}
+
 if (!isNodeProcess && !shouldSkipBootstrap) {
   try {
     if (!globalThis.document) {
@@ -36,6 +47,11 @@ if (!isNodeProcess && !shouldSkipBootstrap) {
     }
 
     await import("../dist/worker/thunder_runtime.mjs");
+    if (!(await waitForGlobalHandler())) {
+      compiledRuntimeInitError = new Error(
+        "Compiled runtime module loaded but did not register thunder_handle_json."
+      );
+    }
   } catch (error) {
     compiledRuntimeInitError = error;
   } finally {
@@ -47,10 +63,15 @@ if (!isNodeProcess && !shouldSkipBootstrap) {
   }
 }
 
-if (!compiledRuntimeInitError && typeof globalThis.thunder_handle_json !== "function") {
+if (
+  !compiledRuntimeInitError &&
+  !isNodeProcess &&
+  !shouldSkipBootstrap &&
+  typeof globalThis.thunder_handle_json !== "function"
+) {
   compiledRuntimeInitError = new Error(
     "Compiled runtime module loaded but did not register thunder_handle_json."
   );
 }
 
-export { compiledRuntimeInitError };
+export { compiledRuntimeInitError, waitForGlobalHandler };

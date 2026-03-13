@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 globalThis.__THUNDER_SKIP_BOOTSTRAP__ = true;
 const { __internal } = await import("./index.mjs");
+const { waitForGlobalHandler } = await import("./compiled_runtime_bootstrap.mjs");
 
 test("encodeRequest preserves method/url/headers/body", async () => {
   const request = new Request("https://example.com/echo?x=1", {
@@ -65,4 +66,16 @@ test("resolveRelativeModuleUrl returns URL for valid relative path", () => {
   const resolved = __internal.resolveRelativeModuleUrl("./index.mjs");
   assert.ok(resolved instanceof URL);
   assert.equal(resolved.pathname.endsWith("/worker_runtime/index.mjs"), true);
+});
+
+test("waitForGlobalHandler tolerates delayed registration", async () => {
+  delete globalThis.thunder_handle_json;
+  setTimeout(() => {
+    globalThis.thunder_handle_json = () => "ok";
+  }, 5);
+
+  const found = await waitForGlobalHandler({ timeoutMs: 200, intervalMs: 5 });
+  assert.equal(found, true);
+
+  delete globalThis.thunder_handle_json;
 });
