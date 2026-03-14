@@ -95,13 +95,14 @@ let render_wrangler_config template =
   in
   String.concat "\n" with_modules
 
-let stage ~deploy_dir ~wrangler_template_path ~manifest_path =
+let stage ~deploy_dir ~wrangler_template_path ~manifest_path ~framework_root =
   match Deploy_manifest.parse ~manifest_path with
   | Error e -> Error e
   | Ok manifest ->
       let manifest_src = manifest_path in
-      let manifest_src_dir = Filename.dirname manifest_src in
-      let resolve relative = normalize_path (Filename.concat manifest_src_dir relative) in
+      let resolve relative =
+        Deploy_manifest.resolve_reference ~framework_root ~manifest_path relative
+      in
       let runtime_src = resolve manifest.runtime_entry in
       let app_abi_src = resolve manifest.app_abi in
       let generated_wasm_assets_src = resolve manifest.generated_wasm_assets in

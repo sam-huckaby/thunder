@@ -2,8 +2,8 @@
  (name thunder_worker)
  (public_name thunder.worker)
  (wrapped false)
- (libraries thunder_http thunder.core)
- (modules worker runtime))
+ (libraries thunder_http thunder_router thunder.core js_of_ocaml)
+ (modules worker runtime entry dogfood_app))
 
 (executable
  (name wasm_entry)

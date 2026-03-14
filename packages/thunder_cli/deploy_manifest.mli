@@ -13,4 +13,5 @@ type t = {
 }
 
 val parse : manifest_path:string -> (t, string) result
-val referenced_paths : manifest_path:string -> (string list, string) result
+val resolve_reference : framework_root:string -> manifest_path:string -> string -> string
+val referenced_paths : framework_root:string -> manifest_path:string -> (string list, string) result

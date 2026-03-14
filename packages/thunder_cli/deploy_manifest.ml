@@ -42,6 +42,30 @@ let normalize_path path =
 
 let resolve_relative ~base_dir relative = normalize_path (Filename.concat base_dir relative)
 
+let resolve_worker_runtime_with_framework_root ~framework_root relative =
+  let marker = "worker_runtime/" in
+  let rec find_marker start =
+    if start + String.length marker > String.length relative then None
+    else if String.sub relative start (String.length marker) = marker then Some start
+    else find_marker (start + 1)
+  in
+  match find_marker 0 with
+  | None -> None
+  | Some idx ->
+      let suffix = String.sub relative idx (String.length relative - idx) in
+      Some (normalize_path (Filename.concat framework_root suffix))
+
+let resolve_reference_from_base ~framework_root ~base_dir relative =
+  let app_relative = resolve_relative ~base_dir relative in
+  match resolve_worker_runtime_with_framework_root ~framework_root relative with
+  | Some path when Sys.file_exists path -> path
+  | _ when Sys.file_exists app_relative -> app_relative
+  | _ -> app_relative
+
+let resolve_reference ~framework_root ~manifest_path relative =
+  resolve_reference_from_base ~framework_root
+    ~base_dir:(Filename.dirname manifest_path) relative
+
 let extract_value content key =
   let marker = Printf.sprintf "\"%s\"" key in
   match String.index_from_opt content 0 marker.[0] with
@@ -134,17 +158,17 @@ let parse ~manifest_path =
             }
     | _ -> Error ("Manifest is missing required fields: " ^ manifest_path)
 
-let referenced_paths ~manifest_path =
+let referenced_paths ~framework_root ~manifest_path =
   match parse ~manifest_path with
   | Error e -> Error e
   | Ok manifest ->
       let base_dir = Filename.dirname manifest_path in
       Ok
         [ manifest_path;
-          resolve_relative ~base_dir manifest.runtime_entry;
-          resolve_relative ~base_dir manifest.app_abi;
-          resolve_relative ~base_dir manifest.generated_wasm_assets;
-          resolve_relative ~base_dir manifest.compiled_runtime_backend;
-          resolve_relative ~base_dir manifest.bootstrap_module;
-          resolve_relative ~base_dir manifest.compiled_runtime;
-          resolve_relative ~base_dir manifest.assets_dir ]
+          resolve_reference_from_base ~framework_root ~base_dir manifest.runtime_entry;
+          resolve_reference_from_base ~framework_root ~base_dir manifest.app_abi;
+          resolve_reference_from_base ~framework_root ~base_dir manifest.generated_wasm_assets;
+          resolve_reference_from_base ~framework_root ~base_dir manifest.compiled_runtime_backend;
+          resolve_reference_from_base ~framework_root ~base_dir manifest.bootstrap_module;
+          resolve_reference_from_base ~framework_root ~base_dir manifest.compiled_runtime;
+          resolve_reference_from_base ~framework_root ~base_dir manifest.assets_dir ]

@@ -4,7 +4,21 @@ Thunder is an OCaml-first edge framework for Cloudflare Workers.
 
 It gives you a typed request/response API, router, middleware model, and a deploy workflow where normal `dune build` can publish preview versions when artifacts change.
 
-If you are starting from a fresh clone and want the quickest path to a working test app, begin with `KICKSTART.md`.
+The primary product direction is now the generated-app workflow:
+
+```bash
+thunder doctor
+thunder new my-app
+cd my-app
+npm install
+dune build
+```
+
+`thunder doctor` reports the current binary/framework-home resolution and checks the local tools Thunder expects.
+
+If you want the current step-by-step first-app flow, begin with `KICKSTART.md`.
+
+This repository is still Thunder's framework source repo and dogfood workspace, but generated apps are now the intended user path.
 
 ## What Thunder is
 
@@ -29,6 +43,18 @@ If you are starting from a fresh clone and want the quickest path to a working t
   - `opam install odoc`
 
 ## Quick Start
+
+For new users, prefer the generated-app path:
+
+```bash
+thunder doctor
+thunder new my-app
+cd my-app
+npm install
+dune build
+```
+
+If you are working on Thunder itself from this repository, the same core commands still apply:
 
 1. Install dependencies:
 
@@ -55,6 +81,59 @@ dune build @doc
 ```
 
 For the first real deploy walkthrough, including where your app code lives, see `KICKSTART.md`.
+
+## Generated App Preview
+
+The frameworkification work now includes a first generated-app scaffold:
+
+```bash
+thunder new my-app
+cd my-app
+npm install
+dune build
+```
+
+Current status:
+
+- generated apps scaffold correctly
+- generated apps complete local `dune build` successfully when preview is skipped due to missing Cloudflare credentials
+- generated apps have validated preview and explicit deploy flows against a real Worker target
+- the final install/distribution path for Thunder itself is still being finalized
+
+## Current Release Shape
+
+Thunder is now far enough along that the generated-app workflow is the right mental model for users.
+
+Current reality:
+
+- generated apps work
+- generated apps build and deploy successfully
+- generated apps currently rely on a temporary framework link under `vendor/thunder-framework`
+
+With the current installer direction, that workspace-visible path is expected to become a link into the installed versioned framework home under `~/.local/share/thunder/current`.
+
+What remains before the framework UX feels fully polished is finalizing that installed-framework-home flow and making it the default release path.
+
+Framework-side verification helper:
+
+```bash
+bash scripts/verify_generated_app_fixture.sh
+```
+
+That script materializes a fresh generated app and checks the local build flow end-to-end.
+
+## Repo vs App
+
+Use a generated app when you want to build with Thunder.
+
+- generated app: primary user workflow
+- Thunder repo: framework development and dogfood workspace
+
+Inside a generated app, the main places you edit are:
+
+- `app/routes.ml`
+- `app/middleware.ml`
+- `worker/entry.ml` (usually only for app wiring)
 
 ## First App Walkthrough (`examples/hello_site`)
 
@@ -244,6 +323,7 @@ Legacy metadata using `hash=...` is still read for compatibility.
 - `docs/architecture.md`
 - `docs/supported_features.md`
 - `docs/deployment.md`
+- `docs/release_install_story.md`
 - `docs/runtime_parity_matrix.md`
 - `docs/examples.md`
 - `docs/release_checklist.md`

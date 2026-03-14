@@ -32,8 +32,8 @@ let compute artifacts =
     Ok combined
   with Failure msg -> Error msg
 
-let compute_with_manifest ~manifest_path artifacts =
-  match Deploy_manifest.referenced_paths ~manifest_path with
+let compute_with_manifest ?(framework_root = ".") ~manifest_path artifacts =
+  match Deploy_manifest.referenced_paths ~framework_root ~manifest_path with
   | Error e -> Error e
   | Ok manifest_artifacts -> compute (manifest_artifacts @ artifacts)
 

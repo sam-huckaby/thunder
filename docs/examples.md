@@ -4,6 +4,8 @@ These examples demonstrate the Thunder API locally and in tests. They are not th
 
 The deployed app in this repo is defined in `packages/thunder_worker/wasm_entry.ml`.
 
+For the generated-app workflow, the equivalent user-edited file is `app/routes.ml` inside the scaffolded app.
+
 ## hello_site
 
 Simple HTML route at `/`.

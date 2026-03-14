@@ -15,4 +15,5 @@ val stage :
   deploy_dir:string ->
   wrangler_template_path:string ->
   manifest_path:string ->
+  framework_root:string ->
   (staged, string) result

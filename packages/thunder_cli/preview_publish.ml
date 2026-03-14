@@ -4,6 +4,7 @@ type config = {
   deploy_dir : string;
   wrangler_template_path : string;
   manifest_path : string;
+  framework_root : string;
   force : bool;
 }
 
@@ -103,7 +104,10 @@ let make_success_message (info : Wrangler.preview_info) =
       "Preview uploaded. Could not parse version id or preview URL from Wrangler output."
 
 let run config =
-  match Deploy_manifest.referenced_paths ~manifest_path:config.manifest_path with
+  match
+    Deploy_manifest.referenced_paths ~framework_root:config.framework_root
+      ~manifest_path:config.manifest_path
+  with
   | Error e -> Error e
   | Ok manifest_artifacts ->
       let missing = missing_artifacts (manifest_artifacts @ config.artifacts) in
@@ -112,13 +116,17 @@ let run config =
           ("Missing artifact(s): " ^ String.concat ", " missing
          ^ ". Run dune build @worker-build first.")
       else
-        match Artifact_hash.compute_with_manifest ~manifest_path:config.manifest_path config.artifacts with
+        match
+          Artifact_hash.compute_with_manifest ~framework_root:config.framework_root
+            ~manifest_path:config.manifest_path config.artifacts
+        with
         | Error e -> Error e
         | Ok hash ->
             match
               Deploy_layout.stage ~deploy_dir:config.deploy_dir
                 ~wrangler_template_path:config.wrangler_template_path
                 ~manifest_path:config.manifest_path
+                ~framework_root:config.framework_root
             with
             | Error e -> Error e
             | Ok staged ->

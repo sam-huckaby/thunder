@@ -2475,14 +2475,14 @@ Progress note:
 
 Validation result:
 
-- credentialed preview smoke has now been validated against existing Worker `muddy-wave-5c2d` for both `auto` and `legacy-global-registration`.
+- credentialed preview smoke has now been validated against an existing Worker target for both `auto` and `legacy-global-registration`.
 - rollback to `auto` was confirmed after explicit backend canary validation.
 
 ## Checkpoint: Phase 18 complete
 Completed:
 - added backend selection controls through `THUNDER_RUNTIME_BACKEND` and threaded them through the Thunder ABI init path
 - added parity tracking in `docs/runtime_parity_matrix.md` plus release-gated smoke tooling in `scripts/preview_smoke.sh` and `.github/workflows/preview-smoke.yml`
-- validated credentialed preview canaries for `auto` and `legacy-global-registration` against existing Worker `muddy-wave-5c2d`
+- validated credentialed preview canaries for `auto` and `legacy-global-registration` against an existing Worker target
 - confirmed rollback by returning backend selection to `auto`
 
 Verified:
@@ -2559,7 +2559,7 @@ Verified:
 - `env -u CLOUDFLARE_API_TOKEN opam exec -- dune runtest`
 - `node --test worker_runtime/index_test.mjs`
 - `opam exec -- dune build @worker-build`
-- `THUNDER_SMOKE_WORKER_NAME="muddy-wave-5c2d" bash scripts/preview_smoke.sh auto`
+- `THUNDER_SMOKE_WORKER_NAME="your-existing-worker" bash scripts/preview_smoke.sh auto`
 
 Next:
 - preserve the single-runtime architecture in future work

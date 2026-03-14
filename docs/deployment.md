@@ -1,5 +1,9 @@
 # Deployment
 
+Preferred deployment path: deploy from a generated Thunder app.
+
+The repo-root dogfood app in `packages/thunder_worker/wasm_entry.ml` remains useful for framework development, but generated apps are now the primary product path.
+
 ## Build outputs
 
 - Compiled OCaml runtime artifact: `_build/default/dist/worker/thunder_runtime.mjs` (generated via `wasm_of_ocaml`)
@@ -11,7 +15,9 @@
 - Generated compiled runtime backend: `_build/default/deploy/worker_runtime/compiled_runtime_backend.mjs`
 - Preview metadata: `.thunder/preview.json`
 
-Thunder deploys the app defined in `packages/thunder_worker/wasm_entry.ml` and packages the generated runtime around it.
+In a generated app, Thunder deploys the app exported from `worker/entry.ml` and packages the generated runtime around it.
+
+In the framework repo dogfood path, Thunder still deploys the app defined in `packages/thunder_worker/wasm_entry.ml`.
 
 ## Dune aliases
 
@@ -45,6 +51,11 @@ Preview publish behavior:
 7. Upload preview via Wrangler using the generated deploy config.
 
 In the normal developer workflow, `dune build` is enough; use `@worker-build` only when you want artifacts without the preview step.
+
+Generated app note:
+
+- generated apps currently vendor a temporary framework bundle under `vendor/thunder-framework`
+- generated apps write preview metadata to app-root `.thunder/preview.json`
 
 Preview metadata format (`.thunder/preview.json`, line-based key/value):
 

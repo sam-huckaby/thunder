@@ -8,6 +8,8 @@
 - `thunder_worker`: Worker env/ctx bridging + runtime adapter.
 - `thunder_cli`: preview and production deployment orchestration.
 
+For the planned separation between framework internals and generated app code, see `docs/framework_boundary.md` and `PLAN2.md`.
+
 ## Request lifecycle
 
 Cloudflare `fetch(request, env, ctx)` -> JS host -> Thunder runtime decode -> OCaml handler/router/middleware -> response encode -> JS `Response`.

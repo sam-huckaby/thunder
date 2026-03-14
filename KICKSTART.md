@@ -1,6 +1,111 @@
 # Thunder Kickstart
 
-This guide takes you from "just cloned" to "deployed on Cloudflare Workers".
+This guide takes you from "I want to try Thunder" to a working app and Cloudflare deploy path.
+
+Preferred path: generate a new Thunder app first.
+
+Planned install shape:
+
+```bash
+curl -fsSL https://.../install.sh | bash
+thunder doctor
+thunder new my-app
+cd my-app
+```
+
+`thunder doctor` should report a valid Thunder binary, a resolved framework home, and the local tools Thunder expects.
+
+The rest of this document has two parts:
+
+1. generated-app flow for people trying Thunder
+2. repo-dogfood flow for contributors working inside the Thunder framework repo itself
+
+At this point Thunder's generated-app workflow is real and working. The main unfinished piece is the final installation/distribution story for Thunder itself; generated apps currently include a temporary framework link while that is being finalized.
+
+## Generated App Flow
+
+### 1) Create a new app
+
+```bash
+thunder doctor
+thunder new my-app
+cd my-app
+```
+
+### 2) Install app dependencies
+
+```bash
+npm install
+```
+
+Prerequisites for generated apps are the same core tools Thunder uses today:
+
+- OCaml + opam + dune
+- Node.js + npm
+- CMake + Ninja (for the `wasm_of_ocaml` toolchain)
+
+### 3) Edit your app code
+
+Start here:
+
+- `app/routes.ml`
+- `app/middleware.ml`
+- `worker/entry.ml`
+
+For most users:
+
+- edit `app/routes.ml`
+- leave `worker/entry.ml` alone unless you are changing app wiring
+
+### 4) Build the app
+
+```bash
+dune build
+```
+
+What this does:
+
+- builds Worker artifacts
+- stages the deploy-ready tree
+- uploads a preview if Cloudflare credentials are present and the artifact hash changed
+
+Preview metadata is written to:
+
+- `.thunder/preview.json`
+
+If you are developing Thunder itself and want to verify the current generated-app experience from the framework repo, run:
+
+```bash
+bash scripts/verify_generated_app_fixture.sh
+```
+
+### 5) Worker-only build
+
+```bash
+dune build @worker-build
+```
+
+### 6) Explicit production deploy
+
+```bash
+CONFIRM_PROD_DEPLOY=1 dune build @deploy-prod
+```
+
+### 7) Preview smoke validation
+
+```bash
+THUNDER_SMOKE_WORKER_NAME="your-existing-worker" bash scripts/preview_smoke.sh auto
+```
+
+### 8) Know the current limitation
+
+Generated apps currently include a temporary framework link under:
+
+- `vendor/thunder-framework`
+
+With the current release direction, that workspace-visible path is expected to become a link into the installed framework home created by the Thunder installer.
+
+## Framework Repo Dogfood Flow
 
 Important: the app Thunder deploys from this repo lives in `packages/thunder_worker/wasm_entry.ml`. The `examples/*` apps are reference examples for learning the API; they are not the deployed app by default.
 

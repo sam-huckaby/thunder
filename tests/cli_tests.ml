@@ -3,6 +3,16 @@ let assert_true msg cond = if not cond then failwith msg
 let assert_eq msg expected actual =
   if expected <> actual then failwith (msg ^ " expected=" ^ expected ^ " actual=" ^ actual)
 
+let contains_substring haystack needle =
+  let haystack_len = String.length haystack in
+  let needle_len = String.length needle in
+  let rec loop index =
+    if index + needle_len > haystack_len then false
+    else if String.sub haystack index needle_len = needle then true
+    else loop (index + 1)
+  in
+  if needle_len = 0 then true else loop 0
+
 let with_temp_file prefix content f =
   let path = Filename.temp_file prefix ".tmp" in
   let oc = open_out path in
@@ -17,13 +27,11 @@ let with_temp_path prefix f =
   Fun.protect ~finally:(fun () -> if Sys.file_exists path then Sys.remove path)
     (fun () -> f path)
 
-let rec rm_rf path =
+let rm_rf path =
   if Sys.file_exists path then
-    if Sys.is_directory path then (
-      Sys.readdir path
-      |> Array.iter (fun name -> rm_rf (Filename.concat path name));
-      Unix.rmdir path)
-    else Sys.remove path
+    match Sys.command ("rm -rf " ^ Filename.quote path) with
+    | 0 -> ()
+    | _ -> failwith ("failed to remove temporary path: " ^ path)
 
 let with_temp_dir prefix f =
   let base = Filename.temp_file prefix ".tmp" in
@@ -35,6 +43,12 @@ let write_file path content =
   let oc = open_out path in
   Fun.protect ~finally:(fun () -> close_out_noerr oc)
     (fun () -> output_string oc content)
+
+let with_cwd path f =
+  let prev = Sys.getcwd () in
+  Fun.protect ~finally:(fun () -> Unix.chdir prev) (fun () ->
+      Unix.chdir path;
+      f ())
 
 let () =
   with_temp_file "thunder-artifact" "hello" (fun artifact ->
@@ -91,6 +105,85 @@ let () =
             manifest.compiled_runtime_backend;
           assert_eq "manifest compiled runtime" "thunder_runtime.mjs"
             manifest.compiled_runtime);
+  ()
+
+let () =
+  with_temp_dir "thunder-config" (fun dir ->
+      let config_path = Filename.concat dir "thunder.json" in
+      write_file config_path
+        "{\"app_module\":\"My_app.Routes\",\"worker_entry_path\":\"worker/entry.ml\",\"compiled_runtime_path\":\"build/runtime.mjs\",\"wrangler_template_path\":\"config/wrangler.toml\",\"deploy_dir\":\".thunder/deploy\",\"framework_root\":\"/tmp/thunder-framework\"}\n";
+      match Thunder_cli_lib.Thunder_config.read ~config_path with
+      | Error e -> failwith e
+      | Ok config ->
+          assert_eq "config app module" "My_app.Routes"
+            (Option.get config.app_module);
+          assert_eq "config worker entry" "worker/entry.ml"
+            (Option.get config.worker_entry_path);
+          assert_eq "config runtime path" "build/runtime.mjs"
+            (Option.get config.compiled_runtime_path));
+  ()
+
+let () =
+  with_temp_dir "thunder-layout" (fun dir ->
+      write_file (Filename.concat dir "thunder.json")
+        "{\"compiled_runtime_path\":\"build/runtime.mjs\",\"wrangler_template_path\":\"config/wrangler.toml\",\"deploy_dir\":\".thunder/deploy\"}\n";
+      with_cwd dir (fun () ->
+          let layout = Thunder_cli_lib.Project_layout.default () in
+          assert_eq "layout runtime path" "build/runtime.mjs"
+            layout.Thunder_cli_lib.Project_layout.compiled_runtime_path;
+          assert_eq "layout manifest path" "build/manifest.json"
+            layout.Thunder_cli_lib.Project_layout.manifest_path;
+          assert_eq "layout wrangler path" "config/wrangler.toml"
+            layout.Thunder_cli_lib.Project_layout.wrangler_template_path));
+  ()
+
+let () =
+  with_temp_dir "thunder-scaffold" (fun dir ->
+      let destination = Filename.concat dir "demo-app" in
+      match Thunder_cli_lib.Scaffold.create_project ~destination ~project_name:"demo-app" with
+      | Error e -> failwith e
+      | Ok () ->
+          let read path =
+            let ic = open_in path in
+            Fun.protect ~finally:(fun () -> close_in_noerr ic)
+              (fun () -> really_input_string ic (in_channel_length ic))
+          in
+          assert_true "scaffold dune-project"
+            (Sys.file_exists (Filename.concat destination "dune-project"));
+          assert_true "scaffold thunder config"
+            (Sys.file_exists (Filename.concat destination "thunder.json"));
+          assert_true "scaffold app routes"
+            (Sys.file_exists (Filename.concat destination "app/routes.ml"));
+          assert_true "scaffold bin main"
+            (Sys.file_exists (Filename.concat destination "bin/main.ml"));
+          assert_true "scaffold worker entry"
+            (Sys.file_exists (Filename.concat destination "worker/entry.ml"));
+          assert_true "scaffold test dune"
+            (Sys.file_exists (Filename.concat destination "test/dune"));
+          assert_true "scaffold framework home"
+            (Sys.file_exists (Filename.concat destination "vendor/thunder-framework/dune-project"));
+          assert_true "scaffold local runtime host"
+            (Sys.file_exists (Filename.concat destination "worker_runtime/index.mjs"));
+          assert_true "scaffold root dune references vendored thunder cli"
+            (contains_substring (read (Filename.concat destination "dune"))
+               "vendor/thunder-framework/packages/thunder_cli/main.exe");
+          assert_true "worker entry exports app"
+            (contains_substring (read (Filename.concat destination "worker/entry.ml"))
+               "Entry.export app");
+          assert_true "routes mention hello from thunder"
+            (contains_substring (read (Filename.concat destination "app/routes.ml"))
+               "Hello from Thunder"));
+  ()
+
+let () =
+  with_temp_dir "thunder-init" (fun dir ->
+      match Thunder_cli_lib.Scaffold.init_project ~destination:dir ~project_name:"demo-app" with
+      | Error e -> failwith e
+      | Ok () ->
+          assert_true "init thunder config"
+            (Sys.file_exists (Filename.concat dir "thunder.json"));
+          assert_true "init worker entry"
+            (Sys.file_exists (Filename.concat dir "worker/entry.ml")));
   ()
 
 let () =
@@ -161,6 +254,7 @@ let () =
                 deploy_dir = Filename.concat dir "deploy";
                 wrangler_template_path = wrangler_path;
                 manifest_path;
+                framework_root = dir;
                 force = false;
               }
           with
