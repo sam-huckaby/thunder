@@ -86,7 +86,7 @@ Framework home:
   $current_link
 
 Next steps:
-  $bin_dir/thunder --version
+  thunder --version
   thunder doctor
   thunder new my-app
   cd my-app
