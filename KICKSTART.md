@@ -45,6 +45,7 @@ Prerequisites for generated apps are the same core tools Thunder uses today:
 - OCaml + opam + dune
 - Node.js + npm
 - CMake + Ninja (for the `wasm_of_ocaml` toolchain)
+- Linux/CI may also require `binaryen` (`wasm-merge`) for the `wasm_of_ocaml` toolchain
 
 ### 3) Edit your app code
 
@@ -125,6 +126,7 @@ You need:
 - OCaml + opam + dune
 - Node.js + npm
 - CMake + Ninja (required by `wasm_of_ocaml` toolchain)
+- Binaryen on Linux/CI (provides `wasm-merge` used by the toolchain)
 
 macOS example:
 

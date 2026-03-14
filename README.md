@@ -41,6 +41,8 @@ This repository is still Thunder's framework source repo and dogfood workspace, 
 - Wrangler local install via `npm install`
 - Wasm toolchain used by this repo:
   - `opam install wasm_of_ocaml-compiler`
+  - Linux/CI may also require `binaryen` (`wasm-merge`)
+  - CMake + Ninja are required by the `wasm_of_ocaml` toolchain build path
 - Optional docs tool:
   - `opam install odoc`
 
