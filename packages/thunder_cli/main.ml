@@ -146,9 +146,14 @@ let run_doctor () =
       prerr_endline msg;
       1
 
+let run_version () =
+  print_endline Thunder_cli_lib.Version.current;
+  0
+
 let () =
   let argv = Array.to_list Sys.argv in
   match argv with
+  | _ :: ("--version" | "version") :: _ -> exit (run_version ())
   | _ :: "doctor" :: _ -> exit (run_doctor ())
   | _ :: "init" :: args -> exit (run_init args)
   | _ :: "new" :: args -> exit (run_new args)
@@ -156,5 +161,5 @@ let () =
   | _ :: "deploy-prod" :: args -> exit (run_deploy_prod args)
   | _ ->
       prerr_endline
-        "Usage: thunder (new <project-name> | init [project-name] | doctor | preview-publish | deploy-prod) [--metadata PATH] [--wasm PATH] [--manifest-path PATH] [--runtime PATH] [--wrangler-template PATH] [--deploy-dir PATH] [--framework-root PATH] [--artifact PATH]";
+        "Usage: thunder (version | --version | new <project-name> | init [project-name] | doctor | preview-publish | deploy-prod) [--metadata PATH] [--wasm PATH] [--manifest-path PATH] [--runtime PATH] [--wrangler-template PATH] [--deploy-dir PATH] [--framework-root PATH] [--artifact PATH]";
       exit 2

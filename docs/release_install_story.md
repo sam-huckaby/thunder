@@ -148,6 +148,7 @@ Current behavior:
 - installs framework assets into `~/.local/share/thunder/versions/<version>/`
 - updates `~/.local/share/thunder/current`
 - supports `thunder doctor` as a quick post-install validation step
+- prints shell-specific PATH guidance when `~/.local/bin` is not already on `PATH`
 
 This script currently assumes it is being run from the Thunder source tree with a built CLI executable available. It is the first implementation step toward the eventual curl-installed release flow.
 

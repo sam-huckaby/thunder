@@ -15,6 +15,12 @@ bin_dir="${THUNDER_BIN_DIR:-$HOME/.local/bin}"
 home_base="${THUNDER_HOME:-${XDG_DATA_HOME:-$HOME/.local/share}/thunder}"
 version_dir="$home_base/versions/$version"
 current_link="$home_base/current"
+shell_name="${SHELL##*/}"
+
+path_contains_bin_dir=0
+case ":${PATH:-}:" in
+  *":$bin_dir:"*) path_contains_bin_dir=1 ;;
+esac
 
 mkdir -p "$bin_dir" "$home_base/versions"
 
@@ -40,6 +46,36 @@ chmod +x "$version_dir/thunder"
 ln -sfn "$version_dir" "$current_link"
 ln -sfn "$current_link/thunder" "$bin_dir/thunder"
 
+print_path_hint() {
+  cat <<EOF
+
+Your PATH does not currently include:
+  $bin_dir
+
+Add it for future shells with:
+EOF
+
+  case "$shell_name" in
+    zsh)
+      cat <<EOF
+  echo 'export PATH="$bin_dir:\$PATH"' >> ~/.zshrc
+  source ~/.zshrc
+EOF
+      ;;
+    bash)
+      cat <<EOF
+  echo 'export PATH="$bin_dir:\$PATH"' >> ~/.bashrc
+  source ~/.bashrc
+EOF
+      ;;
+    *)
+      cat <<EOF
+  export PATH="$bin_dir:\$PATH"
+EOF
+      ;;
+  esac
+}
+
 cat <<EOF
 Thunder installed.
 
@@ -50,9 +86,14 @@ Framework home:
   $current_link
 
 Next steps:
+  $bin_dir/thunder --version
   thunder doctor
   thunder new my-app
   cd my-app
   npm install
   dune build
 EOF
+
+if [ "$path_contains_bin_dir" -eq 0 ]; then
+  print_path_hint
+fi

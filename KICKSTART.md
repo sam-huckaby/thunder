@@ -15,6 +15,8 @@ cd my-app
 
 `thunder doctor` should report a valid Thunder binary, a resolved framework home, and the local tools Thunder expects.
 
+If `thunder` is still not found after install, add `~/.local/bin` to your `PATH` using the command printed by the installer.
+
 The rest of this document has two parts:
 
 1. generated-app flow for people trying Thunder

@@ -16,6 +16,8 @@ dune build
 
 `thunder doctor` reports the current binary/framework-home resolution and checks the local tools Thunder expects.
 
+If the installer puts `thunder` in `~/.local/bin` and that directory is not on your `PATH`, the installer now prints the exact shell command to add it.
+
 If you want the current step-by-step first-app flow, begin with `KICKSTART.md`.
 
 This repository is still Thunder's framework source repo and dogfood workspace, but generated apps are now the intended user path.

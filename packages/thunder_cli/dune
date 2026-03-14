@@ -1,7 +1,7 @@
 (library
  (name thunder_cli_lib)
  (libraries unix)
- (modules artifact_hash wrangler framework_home thunder_config project_layout deploy_manifest deploy_layout preview_publish deploy_prod scaffold doctor))
+ (modules artifact_hash wrangler version framework_home thunder_config project_layout deploy_manifest deploy_layout preview_publish deploy_prod scaffold doctor))
 
 (executable
  (name main)
