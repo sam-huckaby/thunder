@@ -26,10 +26,10 @@ jobs:
           - runner: ubuntu-latest
             asset_os: linux
             asset_arch: x86_64
-          - runner: macos-13
+          - runner: macos-15-intel
             asset_os: darwin
             asset_arch: x86_64
-          - runner: macos-14
+          - runner: macos-15
             asset_os: darwin
             asset_arch: arm64
     steps:
