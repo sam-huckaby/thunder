@@ -120,6 +120,8 @@ jobs:
         run: opam install -y dune wasm_of_ocaml-compiler js_of_ocaml
       - name: Add opam bin to PATH
         run: echo "$(opam var bin)" >> "$GITHUB_PATH"
+      - name: Export opam switch
+        run: echo "OPAMSWITCH=$(opam switch show)" >> "$GITHUB_ENV"
       - name: Resolve release version
         run: |
           python3 - <<'PY' > /tmp/thunder_version
@@ -137,17 +139,19 @@ jobs:
       - name: Verify installed Thunder and generated app flow
         env:
           THUNDER_HOME: ${{ github.workspace }}/.thunder-home
+          OPAMSWITCH: ${{ env.OPAMSWITCH }}
         run: |
           set -eux
           export PATH="$GITHUB_WORKSPACE/.thunder-bin:$PATH"
+          eval "$(opam env)"
           thunder --version
           thunder doctor
           tmp_root="$(mktemp -d)"
           thunder new "$tmp_root/my-app"
           cd "$tmp_root/my-app"
           npm install
-          opam exec -- dune build @worker-build
-          env -u CLOUDFLARE_API_TOKEN opam exec -- dune build
+          dune build @worker-build
+          env -u CLOUDFLARE_API_TOKEN dune build
 
   publish-release:
     name: Publish GitHub Release assets
