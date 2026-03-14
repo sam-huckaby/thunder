@@ -6,6 +6,7 @@
 - docs reviewed (`README.md`, architecture/deployment/features)
 - `KICKSTART.md` reviewed against the actual first-app flow
 - `scripts/install_thunder.sh` validated
+- `.github/workflows/release-artifacts.yml` validated
 - `thunder doctor` validated after install
 - examples compile and smoke tests pass
 - preview publish flow validated (changed + unchanged artifact paths)
@@ -13,3 +14,4 @@
 - single compiled-runtime path verified in preview before release
 - production deploy confirmation guard verified
 - installed-binary generated app flow validated (`thunder new`, `dune build @worker-build`, plain `dune build`)
+- release assets published with binaries, framework bundle, and `checksums.txt`

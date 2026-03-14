@@ -1,0 +1,166 @@
+name: Release Artifacts
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      publish_release:
+        description: Publish assets to a GitHub Release after verification
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  build-cli-binary:
+    name: Build CLI (${{ matrix.asset_os }}-${{ matrix.asset_arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            asset_os: linux
+            asset_arch: x86_64
+          - runner: macos-13
+            asset_os: darwin
+            asset_arch: x86_64
+          - runner: macos-14
+            asset_os: darwin
+            asset_arch: arm64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: 5.2.0
+      - name: Install dune
+        run: opam install -y dune
+      - name: Build Thunder CLI
+        run: opam exec -- dune build packages/thunder_cli/main.exe
+      - name: Package CLI binary
+        env:
+          THUNDER_RELEASE_OS: ${{ matrix.asset_os }}
+          THUNDER_RELEASE_ARCH: ${{ matrix.asset_arch }}
+        run: bash scripts/build_release_artifacts.sh binary
+      - name: Upload CLI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-${{ matrix.asset_os }}-${{ matrix.asset_arch }}
+          path: artifacts/thunder-*
+          if-no-files-found: error
+
+  build-framework-bundle:
+    name: Build framework bundle
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Package framework bundle
+        run: bash scripts/build_release_artifacts.sh framework
+      - name: Upload framework artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: framework-bundle
+          path: artifacts/thunder-framework-*.tar.gz
+          if-no-files-found: error
+
+  assemble-release-artifacts:
+    name: Assemble release artifacts
+    runs-on: ubuntu-latest
+    needs:
+      - build-cli-binary
+      - build-framework-bundle
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download built assets
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Write checksums
+        run: bash scripts/build_release_artifacts.sh checksums
+      - name: Show assembled artifacts
+        run: ls -l artifacts
+      - name: Upload assembled release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-assets
+          path: artifacts/*
+          if-no-files-found: error
+
+  verify-install:
+    name: Verify install from assembled artifacts
+    runs-on: ubuntu-latest
+    needs: assemble-release-artifacts
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: artifacts
+      - name: Install system packages
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build
+      - name: Install Binaryen
+        run: |
+          set -eux
+          BINARYEN_VERSION=version_122
+          curl -L "https://github.com/WebAssembly/binaryen/releases/download/${BINARYEN_VERSION}/binaryen-${BINARYEN_VERSION}-x86_64-linux.tar.gz" -o /tmp/binaryen.tar.gz
+          tar -xzf /tmp/binaryen.tar.gz -C /tmp
+          echo "/tmp/binaryen-${BINARYEN_VERSION}/bin" >> "$GITHUB_PATH"
+      - uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: 5.2.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install OCaml toolchain
+        run: opam install -y dune wasm_of_ocaml-compiler js_of_ocaml
+      - name: Resolve release version
+        run: |
+          python3 - <<'PY' > /tmp/thunder_version
+          import json
+          from pathlib import Path
+          print(json.loads(Path('package.json').read_text())['version'])
+          PY
+          echo "THUNDER_VERSION=$(cat /tmp/thunder_version)" >> "$GITHUB_ENV"
+      - name: Install Thunder from assembled artifacts
+        env:
+          THUNDER_ASSET_DIR: ${{ github.workspace }}/artifacts
+          THUNDER_HOME: ${{ github.workspace }}/.thunder-home
+          THUNDER_BIN_DIR: ${{ github.workspace }}/.thunder-bin
+        run: bash scripts/install_thunder.sh
+      - name: Verify installed Thunder and generated app flow
+        env:
+          THUNDER_HOME: ${{ github.workspace }}/.thunder-home
+        run: |
+          set -eux
+          export PATH="$GITHUB_WORKSPACE/.thunder-bin:$PATH"
+          thunder --version
+          thunder doctor
+          tmp_root="$(mktemp -d)"
+          thunder new "$tmp_root/my-app"
+          cd "$tmp_root/my-app"
+          npm install
+          dune build @worker-build
+          env -u CLOUDFLARE_API_TOKEN dune build
+
+  publish-release:
+    name: Publish GitHub Release assets
+    runs-on: ubuntu-latest
+    needs: verify-install
+    if: github.ref_type == 'tag' && (github.event_name == 'push' || inputs.publish_release)
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: artifacts
+      - name: Publish release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true

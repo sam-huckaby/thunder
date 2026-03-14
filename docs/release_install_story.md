@@ -17,7 +17,7 @@ The `thunder` binary is installed in the user bin directory. Framework-owned ass
 The install and app-creation flow is:
 
 ```bash
-curl -fsSL https://.../install.sh | bash
+curl -fsSL https://my-website.com/install_thunder.sh | bash
 thunder doctor
 thunder new my-app
 cd my-app
@@ -77,6 +77,17 @@ The installer script:
 - updates `~/.local/share/thunder/current`
 - supports `thunder doctor` as a post-install verification step
 - prints PATH guidance when `~/.local/bin` is not already on `PATH`
+- supports both local repo installs and release-asset installs
+
+In local repo mode, the installer copies from a checked-out Thunder repo with a built CLI binary.
+
+In release mode, the installer downloads a platform-specific CLI binary, a shared framework bundle, and `checksums.txt` from published release assets.
+
+Useful release-mode environment overrides include:
+
+- `THUNDER_VERSION` to pin a specific version
+- `THUNDER_RELEASE_REPO` to change the GitHub repo used for release downloads
+- `THUNDER_BIN_DIR` and `THUNDER_HOME` to override install locations
 
 ## Generated App Compatibility
 
@@ -110,6 +121,16 @@ dune build
 ```
 
 At the framework-repo level, `scripts/verify_generated_app_fixture.sh` provides an end-to-end generated-app verification path.
+
+For release packaging, `.github/workflows/release-artifacts.yml` adds a second CI pipeline that:
+
+1. builds platform CLI binaries
+2. assembles the shared framework bundle
+3. writes `checksums.txt`
+4. verifies install-from-artifacts in a clean environment
+5. publishes those assets on tagged releases
+
+The workflow assembles the publishable files under an `artifacts/` directory before upload.
 
 ## Why This Layout Exists
 

@@ -188,6 +188,55 @@ bash scripts/check_mli.sh
 bash scripts/verify_generated_app_fixture.sh
 ```
 
+If you change CLI behavior such as scaffolding and want your installed `thunder` command to pick up those changes, rebuild and reinstall it from the repo root:
+
+```bash
+npm install
+opam exec -- dune build packages/thunder_cli/main.exe
+bash scripts/install_thunder.sh
+thunder --version
+thunder doctor
+```
+
+What those commands do:
+
+- `opam exec -- dune build packages/thunder_cli/main.exe` rebuilds the Thunder CLI binary at `_build/default/packages/thunder_cli/main.exe`
+- `bash scripts/install_thunder.sh` copies that rebuilt binary into `~/.local/bin/thunder` and updates the installed framework home under `~/.local/share/thunder/current`
+- `thunder doctor` verifies that your shell is resolving the installed binary you expect and that Thunder can find its framework files
+
+This matters because changing files in this repo does not automatically update the already-installed `thunder` binary on your machine.
+
+If you specifically changed app scaffolding, do a quick installed-binary smoke test after reinstalling:
+
+```bash
+thunder new my-app
+cd my-app
+npm install
+dune build @worker-build
+dune build
+```
+
+If you want installable release artifacts without cloning the repo, use the release-artifact workflow in `.github/workflows/release-artifacts.yml`.
+
+That workflow builds:
+
+- platform CLI binaries for macOS and Linux
+- a versioned framework bundle tarball
+- a `checksums.txt` file for installer verification
+
+The intended hosted install flow is:
+
+```bash
+curl -fsSL https://my-website.com/install_thunder.sh | bash
+```
+
+The installer script at `scripts/install_thunder.sh` now supports both modes:
+
+- local repo install when run from a checked-out Thunder repo with a built CLI binary
+- release-asset install when run standalone and pointed at GitHub Release assets
+
+For release work, the workflow assembles everything into an `artifacts/` directory before verification and publication.
+
 The app deployed from this repository lives in `packages/thunder_worker/wasm_entry.ml`.
 
 The `examples/` directory contains reference examples for learning the API; those examples are not the app this repository deploys by default.
