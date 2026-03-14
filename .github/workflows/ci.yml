@@ -33,8 +33,8 @@ jobs:
       - run: npm install
       - run: opam install -y wasm_of_ocaml-compiler js_of_ocaml
       - run: opam install -y odoc
-      - run: bash scripts/check_mli.sh
-      - run: dune build
-      - run: dune runtest
-      - run: dune build @doc
-      - run: dune build @worker-build
+      - run: opam exec -- bash scripts/check_mli.sh
+      - run: opam exec -- dune build
+      - run: opam exec -- dune runtest
+      - run: opam exec -- dune build @doc
+      - run: opam exec -- dune build @worker-build
