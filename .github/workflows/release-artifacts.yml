@@ -118,6 +118,8 @@ jobs:
           node-version: 20
       - name: Install OCaml toolchain
         run: opam install -y dune wasm_of_ocaml-compiler js_of_ocaml
+      - name: Add opam bin to PATH
+        run: echo "$(opam var bin)" >> "$GITHUB_PATH"
       - name: Resolve release version
         run: |
           python3 - <<'PY' > /tmp/thunder_version
@@ -144,8 +146,8 @@ jobs:
           thunder new "$tmp_root/my-app"
           cd "$tmp_root/my-app"
           npm install
-          dune build @worker-build
-          env -u CLOUDFLARE_API_TOKEN dune build
+          opam exec -- dune build @worker-build
+          env -u CLOUDFLARE_API_TOKEN opam exec -- dune build
 
   publish-release:
     name: Publish GitHub Release assets
