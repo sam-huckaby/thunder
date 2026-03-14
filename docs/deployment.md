@@ -1,35 +1,101 @@
 # Deployment
 
-Preferred deployment path: deploy from a generated Thunder app.
+This document describes how Thunder builds, stages, previews, and deploys apps to Cloudflare Workers.
 
-The repo-root dogfood app in `packages/thunder_worker/wasm_entry.ml` remains useful for framework development, but generated apps are now the primary product path.
+Thunder deploys a generated Worker runtime tree, not a raw OCaml artifact by itself. The deployable unit includes the compiled OCaml runtime bundle, Wasm assets, the Thunder Worker host, the ABI shim, and a generated Wrangler config.
 
-## Build outputs
+## Deployment Inputs And Outputs
 
-- Compiled OCaml runtime artifact: `_build/default/dist/worker/thunder_runtime.mjs` (generated via `wasm_of_ocaml`)
-- Companion Wasm chunks: `_build/default/dist/worker/thunder_runtime.assets/*.wasm`
-- Build manifest: `_build/default/dist/worker/manifest.json`
-- Generated deploy config: `_build/default/deploy/wrangler.toml`
-- Generated Worker runtime host: `_build/default/deploy/worker_runtime/index.mjs`
-- Generated Worker ABI shim: `_build/default/deploy/worker_runtime/app_abi.mjs`
-- Generated compiled runtime backend: `_build/default/deploy/worker_runtime/compiled_runtime_backend.mjs`
-- Preview metadata: `.thunder/preview.json`
+The main build outputs are:
 
-In a generated app, Thunder deploys the app exported from `worker/entry.ml` and packages the generated runtime around it.
+- `_build/default/dist/worker/thunder_runtime.mjs`
+- `_build/default/dist/worker/thunder_runtime.assets/*.wasm`
+- `_build/default/dist/worker/manifest.json`
+- `_build/default/deploy/wrangler.toml`
+- `_build/default/deploy/worker_runtime/index.mjs`
+- `_build/default/deploy/worker_runtime/app_abi.mjs`
+- `_build/default/deploy/worker_runtime/compiled_runtime_backend.mjs`
+- `_build/default/deploy/worker_runtime/compiled_runtime_bootstrap.mjs`
+- `.thunder/preview.json`
 
-In the framework repo dogfood path, Thunder still deploys the app defined in `packages/thunder_worker/wasm_entry.ml`.
+In a generated app, Thunder deploys the app exported from `worker/entry.ml`.
 
-## Dune aliases
+In the framework repository, Thunder deploys the app exported from `packages/thunder_worker/wasm_entry.ml`.
 
-- `@worker-build`: builds deployable artifacts.
-- `@preview-publish`: computes artifact hash and publishes preview when changed.
-- `@deploy-prod`: explicit production deploy path.
+## Dune Aliases
 
-## Preview flow
+- `@worker-build`
+  - builds the runtime artifacts and manifest
+- `@preview-publish`
+  - stages the deploy tree and uploads a preview when needed
+- `@deploy-prod`
+  - stages the deploy tree and performs an explicit production deploy
 
-`dune build` triggers `@worker-build` and `@preview-publish`.
+For normal app development, `dune build` is the standard entrypoint.
 
-Root `wrangler.toml` is the source template Thunder uses to generate `_build/default/deploy/wrangler.toml`.
+## Normal Build Flow
+
+```bash
+dune build
+```
+
+That build runs the normal Thunder deployment pipeline:
+
+1. build the Worker runtime artifacts
+2. read `dist/worker/manifest.json`
+3. stage a deploy-ready Worker tree under `_build/default/deploy/`
+4. compute an artifact hash from the manifest and referenced files
+5. compare the hash with `.thunder/preview.json`
+6. skip preview upload if nothing changed
+7. upload a preview through Wrangler when credentials are present and artifacts changed
+
+If `CLOUDFLARE_API_TOKEN` is not set, the build still succeeds and preview upload is skipped.
+
+## Worker-Only Build
+
+If you want deployable artifacts without the preview step:
+
+```bash
+dune build @worker-build
+```
+
+## Preview Publish
+
+Thunder uses Wrangler version upload for preview environments.
+
+The preview flow is driven by `dist/worker/manifest.json`, which is the source of truth for the runtime files Thunder stages and hashes.
+
+Preview metadata is stored in `.thunder/preview.json` as line-based key/value data. The keys may include:
+
+- `artifact_hash`
+- `last_upload_at`
+- `last_version_id`
+- `last_preview_url`
+- `raw_wrangler_output`
+
+Force a preview upload even when the artifact hash is unchanged:
+
+```bash
+THUNDER_FORCE_PREVIEW=1 dune build
+```
+
+Thunder parses Wrangler output to capture version id and preview URL. If the upload succeeds but output parsing is incomplete, Thunder still records the raw Wrangler output for debugging.
+
+## Production Deploy
+
+Run:
+
+```bash
+CONFIRM_PROD_DEPLOY=1 dune build @deploy-prod
+```
+
+Production deploy is intentionally guarded. If `CONFIRM_PROD_DEPLOY` is not set to `1`, the deploy fails safely.
+
+Thunder runs Wrangler against `_build/default/deploy/wrangler.toml`, not the root `wrangler.toml` template directly.
+
+## Wrangler Configuration
+
+Root `wrangler.toml` is the template Thunder uses to generate the staged deploy config.
 
 It should include your Cloudflare account id:
 
@@ -38,75 +104,66 @@ account_id = "<your-cloudflare-account-id>"
 compatibility_flags = ["nodejs_compat"]
 ```
 
-Find your account id with `npx wrangler whoami`.
+Find your account id with:
 
-Preview publish behavior:
+```bash
+npx wrangler whoami
+```
 
-1. Validate artifacts exist.
-2. Read `dist/worker/manifest.json` as the source of truth for deployable runtime files.
-3. Stage a deploy-ready Worker tree under `_build/default/deploy/` from the manifest.
-4. Compute stable hash from the manifest plus all referenced artifacts.
-5. Compare with previous metadata hash.
-6. Skip upload if unchanged (unless forced).
-7. Upload preview via Wrangler using the generated deploy config.
+The staged config is rendered so that:
 
-In the normal developer workflow, `dune build` is enough; use `@worker-build` only when you want artifacts without the preview step.
+- `main = "worker_runtime/index.mjs"`
+- `find_additional_modules = true`
 
-Generated app note:
+That makes the staged Worker host the deployed entrypoint.
 
-- generated apps currently vendor a temporary framework bundle under `vendor/thunder-framework`
-- generated apps write preview metadata to app-root `.thunder/preview.json`
+## Preview Smoke Validation
 
-Preview metadata format (`.thunder/preview.json`, line-based key/value):
+Thunder includes a smoke path for validating preview deployments:
 
-- `artifact_hash`
-- `last_upload_at`
-- `last_version_id`
-- `last_preview_url`
-- `raw_wrangler_output`
+- local script: `scripts/preview_smoke.sh [auto]`
+- GitHub workflow: `.github/workflows/preview-smoke.yml`
 
-Backward compatibility:
+Local usage:
 
-- legacy `hash=...` metadata is still read and migrated in-memory to `artifact_hash` semantics.
+```bash
+THUNDER_SMOKE_WORKER_NAME="your-existing-worker" bash scripts/preview_smoke.sh auto
+```
 
-Force preview mode:
+The smoke script expects `CLOUDFLARE_API_TOKEN` and records preview metadata in `.thunder/preview.json`.
 
-- Set `THUNDER_FORCE_PREVIEW=1`.
-
-Preview output parsing:
-
-- Thunder parses Wrangler output for version id and preview URL.
-- If parsing fails, preview upload is still considered successful and `raw_wrangler_output` is persisted for debugging.
-
-Troubleshooting:
-
-- If `CLOUDFLARE_API_TOKEN` is unset, preview publish is skipped (non-fatal).
-- If `account_id` is missing/incorrect, Wrangler preview/deploy can fail with account/authentication errors.
-- If Wrangler is unavailable, preview publish is skipped (non-fatal).
-- If artifacts are missing, preview publish fails with explicit missing path errors.
-- Preview runtime now uses a single compiled-runtime path; if smoke fails, investigate the staged runtime files rather than backend selection.
-
-## Preview smoke workflow
-
-- Manual GitHub Action: `.github/workflows/preview-smoke.yml`
-- Local smoke script: `scripts/preview_smoke.sh [auto]`
-- The smoke path expects `CLOUDFLARE_API_TOKEN` and records preview metadata in `.thunder/preview.json`.
-- Use `docs/runtime_parity_matrix.md` to compare route behavior before advancing toward Phase 19.
-- Phase 18 canary validation has been exercised against an existing Worker on the single compiled-runtime path.
-
-Smoke route expectations:
+The default smoke expectations are:
 
 - `/` returns the default HTML page
 - `/health` returns `{"ok":true}`
 - `/echo` returns the posted JSON body
 - `/missing` returns `404`
 
-## Production deploy
+## How Staging Works
 
-Run:
+Thunder stages deployment artifacts from the manifest rather than assuming a hardcoded deploy tree.
 
-`CONFIRM_PROD_DEPLOY=1 dune build @deploy-prod`
+The staging flow:
 
-Production deploy fails safely when confirmation is missing.
+1. parse `dist/worker/manifest.json`
+2. resolve every referenced runtime file
+3. copy those files into `_build/default/deploy/`
+4. rewrite `wrangler.toml` for the staged Worker tree
+5. point Wrangler at the staged config
 
-Thunder runs Wrangler against `_build/default/deploy/wrangler.toml`, not the root template directly.
+This keeps preview and production deploys aligned around the same packaged runtime shape.
+
+## Troubleshooting
+
+- `CLOUDFLARE_API_TOKEN` unset
+  - preview upload is skipped
+- missing or incorrect `account_id`
+  - Wrangler preview or deploy can fail with account/auth errors
+- Wrangler unavailable
+  - preview upload is skipped and production deploy cannot proceed
+- missing runtime artifacts
+  - run `dune build @worker-build`
+- missing or stale deploy tree
+  - run `dune build` and inspect `_build/default/deploy/`
+- smoke validation failures
+  - inspect the staged runtime files and `.thunder/preview.json`

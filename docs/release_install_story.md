@@ -1,19 +1,20 @@
-# Release / Install Story
+# Release And Install Layout
 
-This document captures the current preferred release direction for Thunder while Phase F7 is in progress.
+This document describes the Thunder install layout and what a Thunder installation provides to generated apps.
 
-## Preferred direction
+## Installed Locations
 
-Initial Thunder installation should be driven by a curl-installed binary rather than opam.
+Thunder uses these locations for the installed CLI and framework home:
 
-Working first implementation direction:
+- `~/.local/bin/thunder`
+- `~/.local/share/thunder/versions/<version>/`
+- `~/.local/share/thunder/current`
 
-- install `thunder` into `~/.local/bin/thunder`
-- install framework assets into `~/.local/share/thunder/versions/<version>/`
-- point `~/.local/share/thunder/current` at the active version
-- let generated apps reference that installed framework home instead of carrying a full copied framework bundle
+The `thunder` binary is installed in the user bin directory. Framework-owned assets live in the versioned framework home. The `current` path points at the active installed version.
 
-Target user flow:
+## User Flow
+
+The install and app-creation flow is:
 
 ```bash
 curl -fsSL https://.../install.sh | bash
@@ -24,24 +25,28 @@ npm install
 dune build
 ```
 
-## What the installed binary must provide
+`thunder doctor` validates the local Thunder binary, framework-home resolution, and required local tools.
 
-The Thunder binary is not enough by itself. The generated app currently depends on framework-owned runtime and source assets.
+## What A Thunder Installation Provides
 
-Today those assets are exposed to generated apps through:
+The Thunder binary is only one part of the installed system. Generated apps also depend on framework-owned runtime and build assets.
+
+An installation provides:
+
+- framework OCaml packages used by generated app builds
+- runtime JavaScript modules from `worker_runtime/`
+- helper scripts such as `scripts/generate_wasm_asset_map.py`
+- CLI templates used by `thunder new` and `thunder init`
+
+## Framework Files In Generated Apps
+
+Generated apps expose framework-owned assets through:
 
 - `vendor/thunder-framework`
 
-In the final model, that workspace-visible path can become a symlink into the installed framework home. To remove the temporary bundled copy cleanly, the installed Thunder distribution must make the following available in a stable location:
+Thunder uses that workspace-visible path so generated apps can resolve the framework runtime files, build helpers, and templates they need for local builds and deploys.
 
-- framework OCaml package sources or installed package artifacts needed for generated app builds
-- runtime JS files from `worker_runtime/`
-- helper scripts such as `generate_wasm_asset_map.py`
-- CLI templates used by `thunder new` / `thunder init`
-
-## What `vendor/thunder-framework` currently contains
-
-The temporary framework bundle currently provides four categories of things:
+That framework path provides four categories of files:
 
 1. framework OCaml packages
    - `packages/thunder_core`
@@ -49,128 +54,81 @@ The temporary framework bundle currently provides four categories of things:
    - `packages/thunder_router`
    - `packages/thunder_worker`
    - `packages/thunder_cli`
-2. runtime JS modules
+2. runtime JavaScript modules
    - `worker_runtime/index.mjs`
    - `worker_runtime/app_abi.mjs`
    - `worker_runtime/compiled_runtime_backend.mjs`
    - `worker_runtime/compiled_runtime_bootstrap.mjs`
-3. build/deploy helper scripts
+3. build and deploy helper scripts
    - `scripts/generate_wasm_asset_map.py`
-   - smoke / helper scripts
-4. enough Dune metadata to compile the framework pieces used by generated apps
+   - smoke and helper scripts
+4. Dune metadata needed to compile the framework pieces used by generated apps
 
-That means replacing `vendor/thunder-framework` with a link into an installed framework home still requires all four categories to exist in the installed location.
+## Installer Script
 
-## Practical replacement options
-
-### Option A: install binary + shared framework home
-
-The installer places:
-
-- `thunder` binary in a user bin dir
-- framework assets in something like `~/.local/share/thunder/`
-
-Generated apps would then point `framework_root` at that installed location instead of relying on the temporary local framework-home bundle.
-
-Pros:
-
-- closest to current architecture
-- easiest incremental replacement for the temporary framework-home bundle
-- works well with curl-installed binary
-
-Cons:
-
-- still requires a framework asset home on disk
-- version skew between app and installed framework must be managed carefully
-
-### Option B: binary owns embedded templates + runtime assets
-
-The binary embeds:
-
-- templates
-- runtime JS assets
-- helper scripts or equivalent generated logic
-
-It materializes what is needed into the generated app during `thunder new`.
-
-Pros:
-
-- simpler install surface for users
-- fewer moving pieces in the user environment
-
-Cons:
-
-- generated apps may still end up with copied framework internals unless the build story is redesigned
-- binary release gets larger and more coupled to runtime asset changes
-
-### Option C: binary install + proper installed OCaml packages
-
-The curl-installed binary handles CLI/scaffolding, while Thunder libraries are installed through a second mechanism.
-
-Pros:
-
-- cleaner separation between CLI and libraries
-
-Cons:
-
-- more complicated user story
-- contradicts the goal of a very simple initial install path
-
-## Current recommendation
-
-For the first release-quality Thunder UX, the best fit is:
-
-- curl-installed `thunder` binary
-- installed shared framework home on disk
-- generated apps reference that installed framework home through a workspace-visible link instead of relying on a copied local framework bundle
-
-This keeps the current generated-app architecture mostly intact while replacing copied framework internals with an installed framework home plus a workspace-visible link.
-
-Concretely, the generated app can keep referencing:
-
-- `vendor/thunder-framework`
-
-while the installer makes that path point at:
-
-- `~/.local/share/thunder/current`
-
-That lets us preserve the current Dune/runtime layout that already works.
-
-## First implementation artifact
-
-Thunder now includes an initial installer script:
+Thunder includes an installer script at:
 
 - `scripts/install_thunder.sh`
 
-Current behavior:
+The installer script:
 
-- installs the built Thunder CLI executable into `~/.local/bin/thunder`
+- installs the Thunder CLI executable into `~/.local/bin/thunder`
 - installs framework assets into `~/.local/share/thunder/versions/<version>/`
 - updates `~/.local/share/thunder/current`
-- supports `thunder doctor` as a quick post-install validation step
-- prints shell-specific PATH guidance when `~/.local/bin` is not already on `PATH`
+- supports `thunder doctor` as a post-install verification step
+- prints PATH guidance when `~/.local/bin` is not already on `PATH`
 
-This script currently assumes it is being run from the Thunder source tree with a built CLI executable available. It is the first implementation step toward the eventual curl-installed release flow.
+## Generated App Compatibility
 
-Current verification status:
+The generated app workflow depends on the installed framework layout matching the framework-owned paths Thunder expects.
 
-- install into temporary `THUNDER_BIN_DIR` and `THUNDER_HOME`
-- run installed `thunder new my-app`
-- verify generated app `dune build @worker-build`
-- verify generated app plain `dune build` with preview skipping non-fatally when credentials are absent
+That means the installed framework home must provide:
 
-## Remaining work to replace the temporary `vendor/thunder-framework` bundle
+- the OCaml packages referenced by generated app builds
+- the Worker runtime modules used for staging and deployment
+- the helper scripts used during artifact generation
+- the scaffolding templates used for app creation
 
-1. define the installed framework-home layout
-2. make `thunder new` write `thunder.json` against that layout
-3. update generated-app Dune templates to reference installed framework assets instead of vendored ones
-4. verify:
-   - `dune build @worker-build`
-   - plain `dune build`
-   - preview publish
-   - explicit deploy
-5. change scaffolding from copying framework contents to linking the generated app to the installed framework home
+When those files are present, the generated app commands work against the installed framework layout:
 
-## Non-goal right now
+- `thunder new my-app`
+- `dune build @worker-build`
+- `dune build`
+- `dune build @deploy-prod`
 
-This document does not decide the final long-term package manager story for Thunder libraries. It only captures the most practical path for the first release-ready framework UX.
+## Verification
+
+Useful verification steps are:
+
+```bash
+thunder doctor
+thunder new my-app
+cd my-app
+npm install
+dune build @worker-build
+dune build
+```
+
+At the framework-repo level, `scripts/verify_generated_app_fixture.sh` provides an end-to-end generated-app verification path.
+
+## Why This Layout Exists
+
+Thunder-generated apps depend on both app-owned files and framework-owned files.
+
+The app owns:
+
+- `app/routes.ml`
+- `app/middleware.ml`
+- `worker/entry.ml`
+- `wrangler.toml`
+- `thunder.json`
+
+Thunder owns:
+
+- runtime host modules
+- ABI bridge modules
+- build helper scripts
+- scaffolding templates
+- deploy staging logic
+
+The installed framework home gives generated apps a stable place to resolve those framework-owned pieces while keeping application code in the app workspace.

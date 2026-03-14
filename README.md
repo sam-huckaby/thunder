@@ -2,54 +2,19 @@
 
 Thunder is an OCaml-first edge framework for Cloudflare Workers.
 
-It gives you a typed request/response API, router, middleware model, and a deploy workflow where normal `dune build` can publish preview versions when artifacts change.
+Note: Thunder is still in active development and may break without warning until it reaches its first major version.
 
-The primary product direction is now the generated-app workflow:
+Thunder gives you:
 
-```bash
-thunder doctor
-thunder new my-app
-cd my-app
-npm install
-dune build
-```
+- a typed request/response API
+- a router and middleware model
+- a Dune-driven build flow
+- preview upload and production deploy through Wrangler
 
-`thunder doctor` reports the current binary/framework-home resolution and checks the local tools Thunder expects.
-
-If the installer puts `thunder` in `~/.local/bin` and that directory is not on your `PATH`, the installer now prints the exact shell command to add it.
-
-If you want the current step-by-step first-app flow, begin with `KICKSTART.md`.
-
-This repository is still Thunder's framework source repo and dogfood workspace, but generated apps are now the intended user path.
-
-## What Thunder is
-
-- Edge-native request/response framework for Workers.
-- OCaml-first API with `.mli` contracts.
-- Dune-driven build and preview publish flow.
-
-## What Thunder is not
-
-- Not a Dream port.
-- Not a native socket server.
-- Not a streaming/multipart/WebSocket framework in MVP.
-
-## Prerequisites
-
-- OCaml + Dune
-- Node.js + npm
-- Wrangler local install via `npm install`
-- Wasm toolchain used by this repo:
-  - `opam install wasm_of_ocaml-compiler`
-  - Linux/CI may also require `binaryen` (`wasm-merge`)
-  - CMake + Ninja are required by the `wasm_of_ocaml` toolchain build path
-- Optional docs tool:
-  - `opam install odoc`
+If you want to build an app with Thunder, start with `KICKSTART.md`.
 
 ## Quick Start
 
-For new users, prefer the generated-app path:
-
 ```bash
 thunder doctor
 thunder new my-app
@@ -58,105 +23,133 @@ npm install
 dune build
 ```
 
-If you are working on Thunder itself from this repository, the same core commands still apply:
+`thunder doctor` reports how the Thunder binary resolves its framework home and checks the local tools Thunder expects.
 
-1. Install dependencies:
+## What You Build
+
+A Thunder app is a generated project with these main places to edit:
+
+- `app/routes.ml`
+- `app/middleware.ml`
+- `worker/entry.ml`
+
+In most apps:
+
+- `app/routes.ml` defines routes and handlers
+- `app/middleware.ml` applies app-wide middleware
+- `worker/entry.ml` stays small and only wires the app into the Worker export
+
+## Prerequisites
+
+- OCaml + opam + dune
+- Node.js + npm
+- local Wrangler install via `npm install`
+- `wasm_of_ocaml-compiler`
+- CMake + Ninja
+- Linux/CI may also require `binaryen` for `wasm-merge`
+
+Optional:
+
+- `odoc` for local docs builds
+
+Example setup:
 
 ```bash
+opam install dune wasm_of_ocaml-compiler odoc
 npm install
 ```
 
-2. Build (includes worker artifact build + preview publish path):
+## Generated App Workflow
 
-```bash
-dune build
-```
-
-3. Run tests:
-
-```bash
-dune runtest
-```
-
-4. Build docs (optional):
-
-```bash
-dune build @doc
-```
-
-For the first real deploy walkthrough, including where your app code lives, see `KICKSTART.md`.
-
-## Generated App Preview
-
-The frameworkification work now includes a first generated-app scaffold:
+Create an app:
 
 ```bash
 thunder new my-app
 cd my-app
 npm install
+```
+
+Build it:
+
+```bash
 dune build
 ```
 
-Current status:
+That build does three things:
 
-- generated apps scaffold correctly
-- generated apps complete local `dune build` successfully when preview is skipped due to missing Cloudflare credentials
-- generated apps have validated preview and explicit deploy flows against a real Worker target
-- the final install/distribution path for Thunder itself is still being finalized
+1. compiles the app to Worker runtime artifacts
+2. stages a deploy-ready Worker tree
+3. uploads a preview when credentials are present and the artifact hash changed
 
-## Current Release Shape
-
-Thunder is now far enough along that the generated-app workflow is the right mental model for users.
-
-Current reality:
-
-- generated apps work
-- generated apps build and deploy successfully
-- generated apps currently rely on a temporary framework link under `vendor/thunder-framework`
-
-With the current installer direction, that workspace-visible path is expected to become a link into the installed versioned framework home under `~/.local/share/thunder/current`.
-
-What remains before the framework UX feels fully polished is finalizing that installed-framework-home flow and making it the default release path.
-
-Framework-side verification helper:
+Useful commands inside a generated app:
 
 ```bash
-bash scripts/verify_generated_app_fixture.sh
+# run the normal build flow
+dune build
+
+# build runtime artifacts only
+dune build @worker-build
+
+# run tests
+dune runtest
+
+# explicit production deploy
+CONFIRM_PROD_DEPLOY=1 dune build @deploy-prod
 ```
 
-That script materializes a fresh generated app and checks the local build flow end-to-end.
+Preview metadata is written to `.thunder/preview.json`.
 
-## Repo vs App
+## Cloudflare Setup
 
-Use a generated app when you want to build with Thunder.
+Thunder uses Wrangler for preview uploads and production deploys.
 
-- generated app: primary user workflow
-- Thunder repo: framework development and dogfood workspace
+Set a Cloudflare API token:
 
-Inside a generated app, the main places you edit are:
+```bash
+export CLOUDFLARE_API_TOKEN="<your-token>"
+```
 
-- `app/routes.ml`
-- `app/middleware.ml`
-- `worker/entry.ml` (usually only for app wiring)
+Set your Cloudflare account id in `wrangler.toml`:
 
-## First App Walkthrough (`examples/hello_site`)
+```toml
+account_id = "<your-cloudflare-account-id>"
+compatibility_flags = ["nodejs_compat"]
+```
 
-File: `examples/hello_site/main.ml`
+Find your account id with:
 
-The example defines one route:
+```bash
+npx wrangler whoami
+```
 
-- `GET /` returns HTML via `Thunder.html`.
+If `CLOUDFLARE_API_TOKEN` is not set, `dune build` still succeeds and preview upload is skipped.
 
-Core flow in the example:
+## Build Outputs
 
-1. Build a route list with `Thunder.get`.
-2. Wrap pure handler logic with `Thunder.handler`.
-3. Compile routes into an app handler via `Thunder.router`.
-4. Create a synthetic request with `Thunder.Request.make`.
-5. Execute with `Thunder.Handler.run`.
-6. Inspect the response body.
+The main generated outputs are:
 
-Important note: the `url` in examples (often `https://example.com/...`) is a placeholder used to simulate requests locally. In real Worker execution, Thunder gets the real URL from Cloudflare `fetch(request, env, ctx)` input.
+- `_build/default/dist/worker/thunder_runtime.mjs`
+- `_build/default/dist/worker/thunder_runtime.assets/*.wasm`
+- `_build/default/dist/worker/manifest.json`
+- `_build/default/deploy/wrangler.toml`
+- `_build/default/deploy/worker_runtime/index.mjs`
+- `_build/default/deploy/worker_runtime/app_abi.mjs`
+- `_build/default/deploy/worker_runtime/compiled_runtime_backend.mjs`
+- `.thunder/preview.json`
+
+## Runtime Model
+
+Thunder compiles your app to a Wasm-backed runtime bundle and deploys it behind a thin Cloudflare Worker host.
+
+At runtime:
+
+- the Worker host receives `fetch(request, env, ctx)`
+- Thunder encodes the request through a JSON ABI
+- the compiled OCaml app runs the router, middleware, and handlers
+- Thunder encodes the response back to the Worker host
+- the Worker host returns the final `Response`
+
+For the detailed architecture walkthrough, see `docs/architecture.md`.
 
 ## API At A Glance
 
@@ -181,113 +174,23 @@ Convenience exports:
 - responses: `Thunder.text`, `Thunder.html`, `Thunder.json`, `Thunder.redirect`
 - middleware: `Thunder.logger`, `Thunder.recover`
 
-## Cloudflare + Wrangler Setup
+## Working On Thunder Itself
 
-Thunder uses Wrangler for preview uploads and production deploys.
+This repository is the Thunder framework source tree.
 
-Root `wrangler.toml` is the source template Thunder uses to generate the deploy config at `_build/default/deploy/wrangler.toml`.
-
-Create a Cloudflare API token and export it:
+Useful commands at repo root:
 
 ```bash
-export CLOUDFLARE_API_TOKEN="<your-token>"
-```
-
-Set your Cloudflare account id in `wrangler.toml`:
-
-```toml
-account_id = "<your-cloudflare-account-id>"
-compatibility_flags = ["nodejs_compat"]
-```
-
-You can find your account id with:
-
-```bash
-npx wrangler whoami
-```
-
-Optional (for CI/overrides), you can also export:
-
-```bash
-export CLOUDFLARE_ACCOUNT_ID="<your-cloudflare-account-id>"
-```
-
-Recommended token capability:
-
-- permissions sufficient for Worker version upload and deploy for your target account/script.
-
-If `CLOUDFLARE_API_TOKEN` is missing:
-
-- `dune build` still succeeds,
-- preview publish is skipped with a clear message.
-
-## Build And Deploy Workflows
-
-### Normal build + preview behavior
-
-```bash
+npm install
 dune build
+dune runtest
+bash scripts/check_mli.sh
+bash scripts/verify_generated_app_fixture.sh
 ```
 
-What happens:
+The app deployed from this repository lives in `packages/thunder_worker/wasm_entry.ml`.
 
-1. `@worker-build` generates worker artifacts.
-2. Thunder stages a deploy-ready tree under `_build/default/deploy/`.
-3. Preview pipeline computes artifact hash.
-4. If unchanged, upload is skipped.
-5. If changed and token is present, Wrangler upload runs against the generated deploy config.
-6. Metadata is written to `.thunder/preview.json`.
-
-### Force preview upload
-
-```bash
-THUNDER_FORCE_PREVIEW=1 dune build
-```
-
-### Explicit production deploy
-
-```bash
-CONFIRM_PROD_DEPLOY=1 dune build @deploy-prod
-```
-
-Without `CONFIRM_PROD_DEPLOY=1`, production deploy fails safely.
-
-### Runtime model
-
-Thunder now ships a single compiled-runtime path for Workers. The staged deploy tree contains the host, ABI shim, compiled runtime backend, compiled runtime module, and prebuilt Wasm assets needed at runtime.
-
-The app you deploy from this repo is defined in `packages/thunder_worker/wasm_entry.ml`.
-
-## Artifact Layout
-
-- build artifact module: `_build/default/dist/worker/thunder_runtime.mjs`
-- build artifact Wasm chunks: `_build/default/dist/worker/thunder_runtime.assets/*.wasm`
-- build manifest: `_build/default/dist/worker/manifest.json`
-- generated deploy config: `_build/default/deploy/wrangler.toml`
-- generated deploy runtime host: `_build/default/deploy/worker_runtime/index.mjs`
-- generated deploy ABI shim: `_build/default/deploy/worker_runtime/app_abi.mjs`
-- generated deploy compiled runtime backend: `_build/default/deploy/worker_runtime/compiled_runtime_backend.mjs`
-- preview metadata: `.thunder/preview.json`
-
-## Preview Metadata Fields
-
-Current metadata keys may include:
-
-- `artifact_hash`
-- `last_upload_at`
-- `last_version_id`
-- `last_preview_url`
-- `raw_wrangler_output`
-
-Legacy metadata using `hash=...` is still read for compatibility.
-
-## Local Validation Commands
-
-- `.mli` policy: `bash scripts/check_mli.sh`
-- build: `dune build`
-- tests: `dune runtest`
-- docs: `dune build @doc` (requires `odoc`)
-- worker artifacts only: `dune build @worker-build`
+The `examples/` directory contains reference examples for learning the API; those examples are not the app this repository deploys by default.
 
 ## Examples
 
@@ -300,26 +203,20 @@ Legacy metadata using `hash=...` is still read for compatibility.
 
 ## Troubleshooting
 
-- `Program odoc not found`:
-  - install with `opam install odoc`.
-- preview upload skipped due to token:
-  - export `CLOUDFLARE_API_TOKEN` in your shell/CI.
-- preview/deploy fails with account/auth errors:
-  - verify `account_id` in `wrangler.toml` matches your Cloudflare account.
-- deploy/runtime module path errors:
-  - run `dune build` and confirm `_build/default/deploy/` contains staged Worker files.
-- `Wrangler not available`:
-  - run `npm install` and ensure local wrangler is available.
-- runtime initialization/ABI errors:
-  - verify `dune build @worker-build` generated both `thunder_runtime.mjs` and `thunder_runtime.assets/*.wasm`.
+- `Program odoc not found`: install `odoc` with `opam install odoc`
+- preview upload skipped: export `CLOUDFLARE_API_TOKEN`
+- account/auth errors: verify `account_id` in `wrangler.toml`
+- Wrangler missing: run `npm install`
+- worker artifacts missing: run `dune build @worker-build`
+- deploy tree missing: run `dune build` and inspect `_build/default/deploy/`
 
-## MVP Limitations
+## Current Limitations
 
-- Buffered body only.
-- No streaming response API.
-- No multipart parser.
-- No WebSockets.
-- Cloudflare Workers target only.
+- buffered body only
+- no streaming response API
+- no multipart parser
+- no WebSockets
+- Cloudflare Workers target only
 
 ## Additional Docs
 
@@ -327,7 +224,5 @@ Legacy metadata using `hash=...` is still read for compatibility.
 - `docs/architecture.md`
 - `docs/supported_features.md`
 - `docs/deployment.md`
-- `docs/release_install_story.md`
 - `docs/runtime_parity_matrix.md`
 - `docs/examples.md`
-- `docs/release_checklist.md`

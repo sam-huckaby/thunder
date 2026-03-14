@@ -1,12 +1,12 @@
 # Framework Boundary
 
-This document defines the planned boundary between Thunder framework internals and generated Thunder apps.
+This document defines the boundary between user-owned Thunder app code and framework-owned Thunder internals.
 
-Thunder is currently still dogfooding itself from the framework repository, but that is a transitional development shape, not the long-term user model.
+Thunder apps should focus on routes, middleware, handlers, and app-specific modules. Thunder itself owns the Worker runtime boundary, runtime packaging, and deploy orchestration.
 
-## User-owned app code
+## User-Owned App Code
 
-Generated Thunder apps should own and edit:
+Generated Thunder apps own and edit:
 
 - `app/`
   - routes
@@ -14,7 +14,7 @@ Generated Thunder apps should own and edit:
   - middleware
   - app-specific modules
 - `worker/entry.ml`
-  - tiny Worker entrypoint that exports the app through Thunder's framework-owned API
+  - the small Worker entrypoint that exports the app through Thunder's framework-owned API
 - `bin/`
   - optional app-owned executables and local tooling
 - `test/`
@@ -22,39 +22,26 @@ Generated Thunder apps should own and edit:
 - `wrangler.toml`
 - `package.json`
 - `dune-project`
-- app `dune`
+- app `dune` files
 - `thunder.json`
 - app `README.md`
 
-## Framework-owned internals
+## Framework-Owned Internals
 
-Thunder should own and version:
+Thunder owns and versions:
 
-- runtime JS files in `worker_runtime/`
-- ABI/runtime bridge code
-- compiled runtime backend
-- staged deploy manifest generation
-- preview/deploy orchestration in `thunder_cli`
-- scaffolding templates used by `thunder new`
+- runtime JavaScript files in `worker_runtime/`
+- the JSON ABI bridge between the Worker host and compiled app runtime
+- the compiled runtime backend and bootstrap modules
+- deploy manifest generation
+- preview and production deploy orchestration in `thunder_cli`
+- scaffolding templates used by `thunder new` and `thunder init`
 
-Generated apps should consume these pieces, not edit them directly.
+Generated apps consume these pieces. They are framework internals, not normal app editing surfaces.
 
-Transitional note:
+## Generated App Layout
 
-- the current scaffold temporarily links or copies a framework bundle into `vendor/thunder-framework` so generated apps can build before Thunder's final install/distribution story is chosen
-- this is a bridge toward the installable-framework model, not the end state
-
-Current scaffolding status:
-
-- `thunder new <name>` creates the first generated-app layout
-- `thunder init [project-name]` writes the same layout into an existing directory
-- generated apps now complete local `dune build` successfully when preview upload is skipped due to missing credentials
-- generated apps have now validated preview and explicit deploy flow against a real Worker target
-- `scripts/verify_generated_app_fixture.sh` is now the stable generated-app smoke path inside the framework repo
-
-## Generated app layout
-
-Planned default layout:
+The generated app layout is:
 
 ```text
 my-app/
@@ -79,27 +66,29 @@ my-app/
     smoke_test.ml
 ```
 
-## Planned export API
+## Export API
 
-Generated apps should use a framework-owned entry/export API along these lines:
+Generated apps export their app through a framework-owned Worker entry helper.
+
+The current shape is:
 
 ```ocaml
-let app = My_app.Routes.app
-let () = Thunder_cloudflare.Entry.export app
+let app = My_app.Routes.app |> My_app.Middleware.apply
+
+let () = Entry.export app
 ```
 
-This keeps user code focused on the app itself while Thunder owns the Worker runtime boundary.
+This keeps app code focused on application behavior while Thunder owns the Worker runtime registration and ABI boundary.
 
-Implementation status:
+## Repo Layout Versus App Layout
 
-- the first framework-owned export helper is now being introduced in `packages/thunder_worker/entry.ml`
-- the current dogfood app in `packages/thunder_worker/wasm_entry.ml` is moving to that API first
-- the repo-local app routes are being isolated in `packages/thunder_worker/dogfood_app.ml` so the entry file itself can stay tiny and framework-shaped
-- install-context assumptions are being documented in `docs/install_context.md` and centralized in CLI layout helpers as the first Phase F3 slice
-- the first generated-app scaffolding slice now exists in `packages/thunder_cli/scaffold.ml`, targeting the planned `app/` and `worker/entry.ml` layout
+The framework repository includes a repo-local app entry at `packages/thunder_worker/wasm_entry.ml` for framework development and verification.
 
-## Transitional note
+That repo-local entry uses the same architecture as a generated app:
 
-Today the framework repo still deploys the app defined in `packages/thunder_worker/wasm_entry.ml`.
+- an app handler graph in OCaml
+- a tiny export wrapper
+- the Thunder Worker runtime host
+- manifest-driven staging and deploy packaging
 
-That file should be treated as a temporary dogfood app while Thunder moves toward generated first-class apps.
+Generated apps are the public product shape. The framework repository is the source tree that produces the runtime, CLI, and templates those apps consume.
