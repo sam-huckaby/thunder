@@ -170,9 +170,11 @@ let () =
           assert_true "worker entry exports app"
             (contains_substring (read (Filename.concat destination "worker/entry.ml"))
                "Entry.export app");
+          let routes = read (Filename.concat destination "app/routes.ml") in
           assert_true "routes mention hello from thunder"
-            (contains_substring (read (Filename.concat destination "app/routes.ml"))
-               "Hello from Thunder"));
+            (contains_substring routes "Hello from Thunder");
+          assert_true "routes scaffold styled landing page"
+            (contains_substring routes "radial-gradient(circle at 50% 18%"));
   ()
 
 let () =

@@ -196,7 +196,80 @@ let thunder_json_template ~framework_root =
     framework_root
 
 let app_routes_template () =
-  "let app =\n  Thunder.router\n    [\n      Thunder.get \"/\"\n        (Thunder.handler (fun _ ->\n             Thunder.html \"<h1>Hello from Thunder</h1><p>Edit app/routes.ml to start building.</p>\"));\n      Thunder.get \"/health\"\n        (Thunder.handler (fun _ -> Thunder.json \"{\\\"ok\\\":true}\"));\n    ]\n"
+  {routes|let app =
+  Thunder.router
+    [
+      Thunder.get "/"
+        (Thunder.handler (fun _ ->
+             Thunder.html
+               {html|
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Thunder</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        min-height: 100%;
+        margin: 0;
+      }
+
+      body {
+        display: grid;
+        place-items: center;
+        padding: 2rem;
+        background:
+          radial-gradient(circle at 50% 18%, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.04) 18%, rgba(255, 255, 255, 0) 42%),
+          radial-gradient(circle at 22% 30%, rgba(11, 28, 48, 0.92), rgba(4, 9, 16, 0) 44%),
+          radial-gradient(circle at 78% 18%, rgba(7, 21, 37, 0.78), rgba(4, 9, 16, 0) 40%),
+          linear-gradient(180deg, #0a1420 0%, #050a12 58%, #02040a 100%);
+        color: #f8fbff;
+        font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+      }
+
+      main {
+        width: min(100%, 42rem);
+        text-align: center;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(2.5rem, 7vw, 5.5rem);
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-shadow: 0 0 24px rgba(255, 255, 255, 0.18);
+      }
+
+      p {
+        margin: 1rem 0 0;
+        font-size: clamp(1rem, 2.4vw, 1.25rem);
+        line-height: 1.7;
+        color: rgba(248, 251, 255, 0.84);
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Hello from Thunder</h1>
+      <p>Edit app/routes.ml to start building.</p>
+    </main>
+  </body>
+</html>
+|html}));
+      Thunder.get "/health"
+        (Thunder.handler (fun _ -> Thunder.json "{\"ok\":true}"));
+    ]
+|routes}
 
 let app_routes_mli_template () = "val app : Thunder.handler\n"
 

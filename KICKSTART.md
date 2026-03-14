@@ -25,12 +25,11 @@ opam install dune wasm_of_ocaml-compiler odoc
 ## 2. Create a new app
 
 ```bash
-thunder doctor
 thunder new my-app
 cd my-app
 ```
 
-`thunder doctor` checks the Thunder installation and local toolchain.
+**Tip:** `thunder doctor` checks the Thunder installation and local toolchain.
 
 ## 3. Install app dependencies
 
