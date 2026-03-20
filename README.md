@@ -16,14 +16,13 @@ If you want to build an app with Thunder, start with `KICKSTART.md`.
 ## Quick Start
 
 ```bash
-thunder doctor
 thunder new my-app
 cd my-app
 npm install
 dune build
 ```
 
-`thunder doctor` reports how the Thunder binary resolves its framework home and checks the local tools Thunder expects.
+If you have a problem, `thunder doctor` reports how the Thunder binary resolves its framework home and checks the local tools Thunder expects.
 
 ## What You Build
 
@@ -90,6 +89,9 @@ dune build
 # build runtime artifacts only
 dune build @worker-build
 
+# build the Wasm runtime path explicitly
+THUNDER_COMPILE_TARGET=wasm dune build @worker-build
+
 # run tests
 dune runtest
 
@@ -129,17 +131,19 @@ If `CLOUDFLARE_API_TOKEN` is not set, `dune build` still succeeds and preview up
 The main generated outputs are:
 
 - `_build/default/dist/worker/thunder_runtime.mjs`
-- `_build/default/dist/worker/thunder_runtime.assets/*.wasm`
 - `_build/default/dist/worker/manifest.json`
+- `_build/default/dist/worker/thunder_runtime.assets/` when the selected target is `wasm`
+- `_build/default/dist/worker/thunder_runtime_js.mjs` and `_build/default/dist/worker/thunder_runtime_wasm.mjs` as build intermediates
 - `_build/default/deploy/wrangler.toml`
 - `_build/default/deploy/worker_runtime/index.mjs`
 - `_build/default/deploy/worker_runtime/app_abi.mjs`
+- `_build/default/deploy/worker_runtime/compiled_js_runtime_backend.mjs`
 - `_build/default/deploy/worker_runtime/compiled_runtime_backend.mjs`
 - `.thunder/preview.json`
 
 ## Runtime Model
 
-Thunder compiles your app to a Wasm-backed runtime bundle and deploys it behind a thin Cloudflare Worker host.
+Thunder compiles your app to a JS or Wasm runtime bundle and deploys it behind a thin Cloudflare Worker host. New apps default to `js`; set `THUNDER_COMPILE_TARGET=wasm` when you want the Wasm-backed path.
 
 At runtime:
 
@@ -213,6 +217,7 @@ thunder new my-app
 cd my-app
 npm install
 dune build @worker-build
+THUNDER_COMPILE_TARGET=wasm dune build @worker-build
 dune build
 ```
 

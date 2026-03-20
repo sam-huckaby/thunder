@@ -5,6 +5,11 @@ globalThis.__THUNDER_SKIP_BOOTSTRAP__ = true;
 const { __internal } = await import("./index.mjs");
 const { waitForGlobalHandler } = await import("./compiled_runtime_bootstrap.mjs");
 const {
+  handleCompiledJsRuntimePayload,
+  initCompiledJsRuntimeBackend,
+  resetCompiledJsRuntimeBackendForTests,
+} = await import("./compiled_js_runtime_backend.mjs");
+const {
   init: initAppAbi,
   handle: handleAppAbi,
   resetForTests,
@@ -185,6 +190,46 @@ test("app_abi resolveRuntimeBackend prefers shim override", async () => {
   const backend = abiInternal.resolveRuntimeBackend();
   assert.equal(backend.kind, "shim-override");
   delete globalThis.__THUNDER_WASM_SHIM__;
+  resetForTests();
+});
+
+test("app_abi resolves manifest runtime kind", () => {
+  assert.equal(abiInternal.resolveManifestRuntimeKind(), "wasm");
+});
+
+test("app_abi resolves JS backend when requested", () => {
+  resetForTests();
+  const backend = abiInternal.resolveRuntimeBackend("js");
+  assert.equal(backend.kind, "compiled-js-runtime");
+});
+
+test("app_abi resolves Wasm backend when requested", () => {
+  resetForTests();
+  const backend = abiInternal.resolveRuntimeBackend("wasm");
+  assert.equal(backend.kind, "compiled-wasm-runtime");
+});
+
+test("compiled JS runtime backend uses registered global handler", async () => {
+  resetCompiledJsRuntimeBackendForTests();
+  globalThis.thunder_handle_json = (payload) =>
+    JSON.stringify({ status: 200, headers: [["x-kind", "js"]], body: payload });
+
+  const initResult = await initCompiledJsRuntimeBackend();
+  assert.equal(initResult.kind, "compiled-js-runtime");
+
+  const response = await handleCompiledJsRuntimePayload("storm");
+  assert.equal(JSON.parse(response).body, "storm");
+
+  delete globalThis.thunder_handle_json;
+  resetCompiledJsRuntimeBackendForTests();
+});
+
+test("app_abi init uses compiled Wasm backend from manifest", async () => {
+  resetForTests();
+  globalThis.thunder_handle_json = () => JSON.stringify({ status: 200, headers: [], body: "ok" });
+  const result = await initAppAbi({});
+  assert.equal(result.backend_kind, "compiled-wasm-runtime");
+  delete globalThis.thunder_handle_json;
   resetForTests();
 });
 

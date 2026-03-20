@@ -3,10 +3,10 @@ type staged = {
   config_path : string;
   runtime_path : string;
   app_abi_path : string;
-  bootstrap_path : string;
+  bootstrap_path : string option;
   compiled_runtime_path : string;
   manifest_path : string;
-  assets_dir : string;
+  assets_dir : string option;
 }
 
 let rec ensure_dir path =
@@ -32,6 +32,11 @@ let write_file path contents =
     (fun () -> output_string oc contents)
 
 let copy_file ~src ~dst = write_file dst (read_file src)
+
+let option_iter2 f left right =
+  match (left, right) with
+  | Some a, Some b -> f a b
+  | _ -> ()
 
 let normalize_path path =
   let absolute = String.length path > 0 && path.[0] = '/' in
@@ -105,15 +110,22 @@ let stage ~deploy_dir ~wrangler_template_path ~manifest_path ~framework_root =
       in
       let runtime_src = resolve manifest.runtime_entry in
       let app_abi_src = resolve manifest.app_abi in
-      let generated_wasm_assets_src = resolve manifest.generated_wasm_assets in
       let compiled_backend_src = resolve manifest.compiled_runtime_backend in
-      let bootstrap_src = resolve manifest.bootstrap_module in
       let compiled_runtime_src = resolve manifest.compiled_runtime in
-      let assets_src = resolve manifest.assets_dir in
+      let generated_wasm_assets_src = Option.map resolve manifest.generated_wasm_assets in
+      let bootstrap_src = Option.map resolve manifest.bootstrap_module in
+      let assets_src = Option.map resolve manifest.assets_dir in
       let required_paths =
-        [ wrangler_template_path; manifest_src; runtime_src; app_abi_src;
-          generated_wasm_assets_src; compiled_backend_src; bootstrap_src;
-          compiled_runtime_src; assets_src ]
+        [ Some wrangler_template_path;
+          Some manifest_src;
+          Some runtime_src;
+          Some app_abi_src;
+          generated_wasm_assets_src;
+          Some compiled_backend_src;
+          bootstrap_src;
+          Some compiled_runtime_src;
+          assets_src ]
+        |> List.filter_map Fun.id
       in
       let missing = required_paths |> List.filter (fun path -> not (Sys.file_exists path)) in
       if missing <> [] then
@@ -130,22 +142,21 @@ let stage ~deploy_dir ~wrangler_template_path ~manifest_path ~framework_root =
         let config_path = Filename.concat deploy_dir "wrangler.toml" in
         let runtime_dst = target_from_manifest manifest.runtime_entry in
         let app_abi_dst = target_from_manifest manifest.app_abi in
-        let generated_wasm_assets_dst =
-          target_from_manifest manifest.generated_wasm_assets
-        in
+        let generated_wasm_assets_dst = Option.map target_from_manifest manifest.generated_wasm_assets in
         let compiled_backend_dst = target_from_manifest manifest.compiled_runtime_backend in
         let compiled_dst = target_from_manifest manifest.compiled_runtime in
-        let assets_dst = target_from_manifest manifest.assets_dir in
-        let bootstrap_dst = target_from_manifest manifest.bootstrap_module in
+        let assets_dst = Option.map target_from_manifest manifest.assets_dir in
+        let bootstrap_dst = Option.map target_from_manifest manifest.bootstrap_module in
         let config_contents = read_file wrangler_template_path |> render_wrangler_config in
         copy_file ~src:runtime_src ~dst:runtime_dst;
         copy_file ~src:app_abi_src ~dst:app_abi_dst;
-        copy_file ~src:generated_wasm_assets_src ~dst:generated_wasm_assets_dst;
+        option_iter2 (fun src dst -> copy_file ~src ~dst) generated_wasm_assets_src
+          generated_wasm_assets_dst;
         copy_file ~src:compiled_backend_src ~dst:compiled_backend_dst;
-        copy_file ~src:bootstrap_src ~dst:bootstrap_dst;
+        option_iter2 (fun src dst -> copy_file ~src ~dst) bootstrap_src bootstrap_dst;
         copy_file ~src:compiled_runtime_src ~dst:compiled_dst;
         copy_file ~src:manifest_src ~dst:manifest_dst;
-        copy_dir ~src:assets_src ~dst:assets_dst;
+        option_iter2 (fun src dst -> copy_dir ~src ~dst) assets_src assets_dst;
         write_file config_path config_contents;
         Ok
           {

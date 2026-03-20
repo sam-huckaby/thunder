@@ -56,7 +56,7 @@ export async function initCompiledRuntimeBackend() {
 
   initialized = true;
   return {
-    kind: "compiled-runtime",
+    kind: "compiled-wasm-runtime",
   };
 }
 

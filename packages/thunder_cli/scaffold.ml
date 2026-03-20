@@ -62,37 +62,61 @@ let root_dune_template () =
 (subdir dist/worker
  (rule
   (alias worker-build)
-  (targets thunder_runtime.mjs (dir thunder_runtime.assets))
+  (target thunder_runtime_js.mjs)
+  (deps %{dep:../../worker/entry.bc})
+  (action
+   (run
+    js_of_ocaml
+    compile
+    -o
+    thunder_runtime_js.mjs
+    %{dep:../../worker/entry.bc})))
+
+ (rule
+  (alias worker-build)
+  (targets thunder_runtime_wasm.mjs (dir thunder_runtime_wasm.assets))
   (deps %{dep:../../worker/entry.bc})
   (action
    (run
     wasm_of_ocaml
     compile
      -o
-      thunder_runtime.mjs
-      %{dep:../../worker/entry.bc})))
+      thunder_runtime_wasm.mjs
+       %{dep:../../worker/entry.bc})))
 
  (rule
   (alias worker-build)
-  (target manifest.json)
+  (targets thunder_runtime.mjs manifest.json (dir thunder_runtime.assets))
+  (deps thunder_runtime_js.mjs thunder_runtime_wasm.mjs thunder_runtime_wasm.assets
+        %{dep:../../vendor/thunder-framework/scripts/render_selected_runtime.py}
+        %{dep:../../thunder.json})
   (action
-   (write-file
-    manifest.json
-    "{\n  \"abi_version\": 1,\n  \"app_id\": \"thunder-app\",\n  \"runtime_entry\": \"../../worker_runtime/index.mjs\",\n  \"app_abi\": \"../../worker_runtime/app_abi.mjs\",\n  \"generated_wasm_assets\": \"../../worker_runtime/generated_wasm_assets.mjs\",\n  \"compiled_runtime_backend\": \"../../worker_runtime/compiled_runtime_backend.mjs\",\n  \"bootstrap_module\": \"../../worker_runtime/compiled_runtime_bootstrap.mjs\",\n  \"compiled_runtime\": \"thunder_runtime.mjs\",\n  \"assets_dir\": \"thunder_runtime.assets\"\n}\n"))))
+   (run python3 %{dep:../../vendor/thunder-framework/scripts/render_selected_runtime.py}
+    %{dep:../../thunder.json}
+    %{env:THUNDER_COMPILE_TARGET=}
+    thunder_runtime_js.mjs
+    thunder_runtime_wasm.mjs
+    thunder_runtime_wasm.assets
+    thunder_runtime.mjs
+    thunder_runtime.assets
+    manifest.json))))
 
 (subdir worker_runtime
  (rule
   (alias worker-build)
   (target generated_wasm_assets.mjs)
-  (deps (glob_files ../dist/worker/thunder_runtime.assets/*.wasm)
+  (deps (glob_files ../dist/worker/thunder_runtime_wasm.assets/*.wasm)
         %{dep:../vendor/thunder-framework/scripts/generate_wasm_asset_map.py})
   (action
    (run python3 %{dep:../vendor/thunder-framework/scripts/generate_wasm_asset_map.py}
-    ../dist/worker/thunder_runtime.assets %{target}))))
+    ../dist/worker/thunder_runtime_wasm.assets %{target}))))
 
 (alias
  (name worker-build)
  (deps
+   dist/worker/thunder_runtime_js.mjs
+   dist/worker/thunder_runtime_wasm.mjs
+   dist/worker/thunder_runtime_wasm.assets
    dist/worker/thunder_runtime.mjs
    dist/worker/manifest.json
    dist/worker/thunder_runtime.assets
@@ -105,12 +129,13 @@ let root_dune_template () =
   (alias worker-build)
   %{dep:wrangler.toml}
   %{dep:dist/worker/thunder_runtime.mjs}
-  %{dep:dist/worker/manifest.json}
-  %{dep:worker_runtime/index.mjs}
-  %{dep:worker_runtime/app_abi.mjs}
-  %{dep:worker_runtime/compiled_runtime_backend.mjs}
-  %{dep:worker_runtime/compiled_runtime_bootstrap.mjs}
-  %{dep:worker_runtime/generated_wasm_assets.mjs}
+   %{dep:dist/worker/manifest.json}
+   %{dep:worker_runtime/index.mjs}
+   %{dep:worker_runtime/app_abi.mjs}
+   %{dep:worker_runtime/compiled_js_runtime_backend.mjs}
+   %{dep:worker_runtime/compiled_runtime_backend.mjs}
+   %{dep:worker_runtime/compiled_runtime_bootstrap.mjs}
+   %{dep:worker_runtime/generated_wasm_assets.mjs}
   %{exe:vendor/thunder-framework/packages/thunder_cli/main.exe})
  (locks thunder_preview_publish)
 (action
@@ -121,15 +146,13 @@ let root_dune_template () =
      --metadata
      %{workspace_root}/../../.thunder/preview.json
      --wrangler-template
-     wrangler.toml
-     --deploy-dir
-     deploy
-     --manifest-path
-     %{dep:dist/worker/manifest.json}
-     --wasm
-     %{dep:dist/worker/thunder_runtime.mjs}
-     --artifact
-     %{dep:dist/worker/thunder_runtime.assets})))))
+      wrangler.toml
+      --deploy-dir
+      deploy
+      --manifest-path
+      %{dep:dist/worker/manifest.json}
+      --runtime
+      worker_runtime/index.mjs)))))
 
 (rule
  (alias deploy-prod)
@@ -137,12 +160,13 @@ let root_dune_template () =
   (alias worker-build)
   %{dep:wrangler.toml}
   %{dep:dist/worker/thunder_runtime.mjs}
-  %{dep:dist/worker/manifest.json}
-  %{dep:worker_runtime/index.mjs}
-  %{dep:worker_runtime/app_abi.mjs}
-  %{dep:worker_runtime/compiled_runtime_backend.mjs}
-  %{dep:worker_runtime/compiled_runtime_bootstrap.mjs}
-  %{dep:worker_runtime/generated_wasm_assets.mjs}
+   %{dep:dist/worker/manifest.json}
+   %{dep:worker_runtime/index.mjs}
+   %{dep:worker_runtime/app_abi.mjs}
+   %{dep:worker_runtime/compiled_js_runtime_backend.mjs}
+   %{dep:worker_runtime/compiled_runtime_backend.mjs}
+   %{dep:worker_runtime/compiled_runtime_bootstrap.mjs}
+   %{dep:worker_runtime/generated_wasm_assets.mjs}
   %{exe:vendor/thunder-framework/packages/thunder_cli/main.exe})
 (action
   (chdir %{workspace_root}
@@ -150,15 +174,13 @@ let root_dune_template () =
      (run %{exe:vendor/thunder-framework/packages/thunder_cli/main.exe}
      deploy-prod
      --wrangler-template
-     wrangler.toml
-     --deploy-dir
-     deploy
-     --manifest-path
-     %{dep:dist/worker/manifest.json}
-     --wasm
-     %{dep:dist/worker/thunder_runtime.mjs}
-     --artifact
-     %{dep:dist/worker/thunder_runtime.assets})))))
+      wrangler.toml
+      --deploy-dir
+      deploy
+      --manifest-path
+      %{dep:dist/worker/manifest.json}
+      --runtime
+      worker_runtime/index.mjs)))))
 
 (alias
  (name default)
@@ -192,7 +214,7 @@ let wrangler_template ~project_name =
 
 let thunder_json_template ~framework_root =
   Printf.sprintf
-    "{\n  \"app_module\": \"Routes\",\n  \"worker_entry_path\": \"worker/entry.ml\",\n  \"compiled_runtime_path\": \"dist/worker/thunder_runtime.mjs\",\n  \"wrangler_template_path\": \"wrangler.toml\",\n  \"deploy_dir\": \"deploy\",\n  \"framework_root\": \"%s\"\n}\n"
+    "{\n  \"compile_target\": \"js\",\n  \"app_module\": \"Routes\",\n  \"worker_entry_path\": \"worker/entry.ml\",\n  \"compiled_runtime_path\": \"dist/worker/thunder_runtime.mjs\",\n  \"wrangler_template_path\": \"wrangler.toml\",\n  \"deploy_dir\": \"deploy\",\n  \"framework_root\": \"%s\"\n}\n"
     framework_root
 
 let app_routes_template () =
@@ -221,15 +243,17 @@ let app_routes_template () =
       html,
       body {
         min-height: 100%;
+        height: 100%;
         margin: 0;
+        display: flex;
+        flex-direction: column;
       }
 
       body {
-        display: grid;
-        place-items: center;
-        padding: 2rem;
+        justify-content: center;
+        align-items: center;
         background:
-          radial-gradient(circle at 50% 18%, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.04) 18%, rgba(255, 255, 255, 0) 42%),
+          radial-gradient(circle at 70% 28%, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.04) 18%, rgba(255, 255, 255, 0) 42%),
           radial-gradient(circle at 22% 30%, rgba(11, 28, 48, 0.92), rgba(4, 9, 16, 0) 44%),
           radial-gradient(circle at 78% 18%, rgba(7, 21, 37, 0.78), rgba(4, 9, 16, 0) 40%),
           linear-gradient(180deg, #0a1420 0%, #050a12 58%, #02040a 100%);
@@ -243,6 +267,7 @@ let app_routes_template () =
       }
 
       h1 {
+        color: palegoldenrod;
         margin: 0;
         font-size: clamp(2.5rem, 7vw, 5.5rem);
         font-weight: 600;
@@ -260,7 +285,7 @@ let app_routes_template () =
   </head>
   <body>
     <main>
-      <h1>Hello from Thunder</h1>
+      <h1>Thunder</h1>
       <p>Edit app/routes.ml to start building.</p>
     </main>
   </body>
@@ -295,7 +320,7 @@ let gitignore_template () =
 
 let readme_template ~project_name =
   Printf.sprintf
-    "# %s\n\nThis app was scaffolded by Thunder.\n\n## Current status\n\nThunder currently links or copies framework internals into `vendor/thunder-framework` so the app can build. When Thunder is installed through the current installer flow, that path is expected to be a local link into the installed framework home.\n\n## Where to edit app code\n\n- `app/routes.ml` for routes and responses\n- `app/middleware.ml` for app middleware\n- `worker/entry.ml` is the tiny Worker export wrapper and should rarely need edits\n\n## Useful commands\n\n- `npm install`\n- `dune build`\n- `dune runtest`\n- `dune exec ./bin/main.exe`\n- `THUNDER_SMOKE_WORKER_NAME=\"your-existing-worker\" bash scripts/preview_smoke.sh auto`\n\n## Preview metadata\n\nThunder writes preview state to app-root `.thunder/preview.json`.\n\nUseful fields include:\n\n- `artifact_hash`\n- `last_version_id`\n- `last_preview_url`\n"
+    "# %s\n\nThis app was scaffolded by Thunder.\n\n## Current status\n\nThunder currently links or copies framework internals into `vendor/thunder-framework` so the app can build. When Thunder is installed through the current installer flow, that path is expected to be a local link into the installed framework home.\n\n## Where to edit app code\n\n- `app/routes.ml` for routes and responses\n- `app/middleware.ml` for app middleware\n- `worker/entry.ml` is the tiny Worker export wrapper and should rarely need edits\n\n## Useful commands\n\n- `npm install`\n- `dune build`\n- `dune runtest`\n- `dune exec ./bin/main.exe`\n- `THUNDER_SMOKE_WORKER_NAME=\"your-existing-worker\" bash scripts/preview_smoke.sh js`\n- `THUNDER_COMPILE_TARGET=wasm THUNDER_SMOKE_WORKER_NAME=\"your-existing-worker\" bash scripts/preview_smoke.sh wasm`\n\n## Preview metadata\n\nThunder writes preview state to app-root `.thunder/preview.json`.\n\nUseful fields include:\n\n- `artifact_hash`\n- `last_version_id`\n- `last_preview_url`\n"
     project_name
 
 let test_dune_template ~package_name =

@@ -10,8 +10,8 @@
 - `thunder doctor` validated after install
 - examples compile and smoke tests pass
 - preview publish flow validated (changed + unchanged artifact paths)
-- preview smoke run validated for the single compiled-runtime path
-- single compiled-runtime path verified in preview before release
+- preview smoke run validated for the default JS runtime path
+- preview smoke run validated for the explicit Wasm runtime path
 - production deploy confirmation guard verified
-- installed-binary generated app flow validated (`thunder new`, `dune build @worker-build`, plain `dune build`)
+- installed-binary generated app flow validated (`thunder new`, `dune build @worker-build`, `THUNDER_COMPILE_TARGET=wasm dune build @worker-build`, plain `dune build`)
 - release assets published with binaries, framework bundle, and `checksums.txt`

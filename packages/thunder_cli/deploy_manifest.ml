@@ -1,14 +1,25 @@
+type runtime_kind = Js | Wasm
+
 type t = {
   abi_version : int;
   app_id : string;
+  runtime_kind : runtime_kind;
   runtime_entry : string;
   app_abi : string;
-  generated_wasm_assets : string;
+  generated_wasm_assets : string option;
   compiled_runtime_backend : string;
-  bootstrap_module : string;
+  bootstrap_module : string option;
   compiled_runtime : string;
-  assets_dir : string;
+  assets_dir : string option;
 }
+
+let runtime_kind_of_string = function
+  | "js" -> Ok Js
+  | "wasm" -> Ok Wasm
+  | value ->
+      Error
+        ("Invalid runtime_kind in manifest: " ^ value
+       ^ ". Expected one of: js, wasm")
 
 let read_file path =
   let ic = open_in_bin path in
@@ -125,6 +136,7 @@ let parse ~manifest_path =
     match
       ( find "abi_version",
         find "app_id",
+        find "runtime_kind",
         find "runtime_entry",
         find "app_abi",
         find "generated_wasm_assets",
@@ -133,29 +145,50 @@ let parse ~manifest_path =
         find "compiled_runtime",
         find "assets_dir" )
     with
-    | Some abi_version, Some app_id, Some runtime_entry, Some app_abi,
-      Some generated_wasm_assets,
-      Some compiled_runtime_backend, Some bootstrap_module,
-      Some compiled_runtime, Some assets_dir ->
+    | Some abi_version, Some app_id, Some runtime_kind, Some runtime_entry,
+      Some app_abi, generated_wasm_assets, Some compiled_runtime_backend,
+      bootstrap_module, Some compiled_runtime, assets_dir ->
         let abi_version =
           try int_of_string (strip_quotes abi_version)
           with Failure _ -> -1
         in
-        if abi_version < 0 then
-          Error ("Invalid abi_version in manifest: " ^ manifest_path)
+        if abi_version < 0 then Error ("Invalid abi_version in manifest: " ^ manifest_path)
         else
-          Ok
-            {
-              abi_version;
-              app_id = strip_quotes app_id;
-              runtime_entry = strip_quotes runtime_entry;
-              app_abi = strip_quotes app_abi;
-              generated_wasm_assets = strip_quotes generated_wasm_assets;
-              compiled_runtime_backend = strip_quotes compiled_runtime_backend;
-              bootstrap_module = strip_quotes bootstrap_module;
-              compiled_runtime = strip_quotes compiled_runtime;
-              assets_dir = strip_quotes assets_dir;
-            }
+          let runtime_kind_value = strip_quotes runtime_kind in
+          (match runtime_kind_of_string runtime_kind_value with
+          | Error msg -> Error (msg ^ ": " ^ manifest_path)
+          | Ok runtime_kind ->
+              let generated_wasm_assets = Option.map strip_quotes generated_wasm_assets in
+              let bootstrap_module = Option.map strip_quotes bootstrap_module in
+              let assets_dir = Option.map strip_quotes assets_dir in
+              let missing_for_runtime =
+                match runtime_kind with
+                | Js -> []
+                | Wasm ->
+                    [ (if Option.is_none generated_wasm_assets then [ "generated_wasm_assets" ] else []);
+                      (if Option.is_none bootstrap_module then [ "bootstrap_module" ] else []);
+                      (if Option.is_none assets_dir then [ "assets_dir" ] else []) ]
+                    |> List.flatten
+              in
+              if missing_for_runtime <> [] then
+                Error
+                  ("Manifest is missing required fields for runtime_kind="
+                 ^ runtime_kind_value ^ ": " ^ String.concat ", " missing_for_runtime
+                 ^ " in " ^ manifest_path)
+              else
+                Ok
+                  {
+                    abi_version;
+                    app_id = strip_quotes app_id;
+                    runtime_kind;
+                    runtime_entry = strip_quotes runtime_entry;
+                    app_abi = strip_quotes app_abi;
+                    generated_wasm_assets;
+                    compiled_runtime_backend = strip_quotes compiled_runtime_backend;
+                    bootstrap_module;
+                    compiled_runtime = strip_quotes compiled_runtime;
+                    assets_dir;
+                  })
     | _ -> Error ("Manifest is missing required fields: " ^ manifest_path)
 
 let referenced_paths ~framework_root ~manifest_path =
@@ -164,11 +197,17 @@ let referenced_paths ~framework_root ~manifest_path =
   | Ok manifest ->
       let base_dir = Filename.dirname manifest_path in
       Ok
-        [ manifest_path;
-          resolve_reference_from_base ~framework_root ~base_dir manifest.runtime_entry;
-          resolve_reference_from_base ~framework_root ~base_dir manifest.app_abi;
-          resolve_reference_from_base ~framework_root ~base_dir manifest.generated_wasm_assets;
-          resolve_reference_from_base ~framework_root ~base_dir manifest.compiled_runtime_backend;
-          resolve_reference_from_base ~framework_root ~base_dir manifest.bootstrap_module;
-          resolve_reference_from_base ~framework_root ~base_dir manifest.compiled_runtime;
-          resolve_reference_from_base ~framework_root ~base_dir manifest.assets_dir ]
+        ([ manifest_path;
+           resolve_reference_from_base ~framework_root ~base_dir manifest.runtime_entry;
+           resolve_reference_from_base ~framework_root ~base_dir manifest.app_abi;
+           resolve_reference_from_base ~framework_root ~base_dir manifest.compiled_runtime_backend;
+           resolve_reference_from_base ~framework_root ~base_dir manifest.compiled_runtime ]
+        @ (match manifest.generated_wasm_assets with
+          | Some path -> [ resolve_reference_from_base ~framework_root ~base_dir path ]
+          | None -> [])
+        @ (match manifest.bootstrap_module with
+          | Some path -> [ resolve_reference_from_base ~framework_root ~base_dir path ]
+          | None -> [])
+        @ (match manifest.assets_dir with
+          | Some path -> [ resolve_reference_from_base ~framework_root ~base_dir path ]
+          | None -> []))

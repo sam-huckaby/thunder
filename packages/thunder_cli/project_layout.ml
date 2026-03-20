@@ -1,11 +1,18 @@
+type compile_target = Js | Wasm
+
 type t = {
+  compile_target : compile_target;
   compiled_runtime_path : string;
   manifest_path : string;
-  assets_dir : string;
+  assets_dir : string option;
   wrangler_template_path : string;
   deploy_dir : string;
   framework_root : string;
 }
+
+let compile_target_of_config = function
+  | Thunder_config.Js -> Js
+  | Thunder_config.Wasm -> Wasm
 
 let normalize_path path =
   let absolute = String.length path > 0 && path.[0] = '/' in
@@ -30,8 +37,7 @@ let config_path () = Thunder_config.default_path ()
 let is_framework_root path =
   file_exists (Filename.concat path "dune-project")
   && file_exists (Filename.concat path "packages/thunder_cli/main.ml")
-  &&
-  file_exists (Filename.concat path "worker_runtime/index.mjs")
+  && file_exists (Filename.concat path "worker_runtime/index.mjs")
   && file_exists (Filename.concat path "worker_runtime/app_abi.mjs")
 
 let rec ancestors path =
@@ -77,34 +83,63 @@ let discover_framework_root () =
       in
       Option.value (first_matching_root candidates) ~default:"."
 
-let derive compiled_runtime_path manifest_path wrangler_template_path deploy_dir framework_root =
+let derive compile_target compiled_runtime_path manifest_path wrangler_template_path deploy_dir
+    framework_root =
   let dist_dir = Filename.dirname compiled_runtime_path in
   {
+    compile_target;
     compiled_runtime_path;
     manifest_path = Option.value manifest_path ~default:(Filename.concat dist_dir "manifest.json");
-    assets_dir = Filename.concat dist_dir "thunder_runtime.assets";
+    assets_dir =
+      (match compile_target with
+      | Js -> None
+      | Wasm -> Some (Filename.concat dist_dir "thunder_runtime.assets"));
     wrangler_template_path;
     deploy_dir;
     framework_root;
   }
 
-let default () =
-  let config = Thunder_config.read_if_exists ~config_path:(config_path ()) in
-  let discovered_framework_root = discover_framework_root () in
-  derive
-    (Option.value config.compiled_runtime_path ~default:"dist/worker/thunder_runtime.mjs")
-    None
-    (Option.value config.wrangler_template_path ~default:"wrangler.toml")
-    (Option.value config.deploy_dir ~default:"deploy")
-    (Option.value (Sys.getenv_opt "THUNDER_FRAMEWORK_ROOT")
-       ~default:(Option.value config.framework_root ~default:discovered_framework_root))
+let default_result () =
+  let config_path = config_path () in
+  let config =
+    if Sys.file_exists config_path then Thunder_config.read ~config_path else Ok Thunder_config.empty
+  in
+  match config with
+  | Error msg -> Error msg
+  | Ok config ->
+      let discovered_framework_root = discover_framework_root () in
+      Ok
+        (derive
+           (Option.value config.compile_target ~default:Thunder_config.Js |> compile_target_of_config)
+           (Option.value config.compiled_runtime_path ~default:"dist/worker/thunder_runtime.mjs")
+           None
+           (Option.value config.wrangler_template_path ~default:"wrangler.toml")
+           (Option.value config.deploy_dir ~default:"deploy")
+           (Option.value (Sys.getenv_opt "THUNDER_FRAMEWORK_ROOT")
+              ~default:(Option.value config.framework_root ~default:discovered_framework_root)))
 
-let with_overrides ?compiled_runtime_path ?manifest_path ?wrangler_template_path ?deploy_dir
-    ?framework_root () =
-  let base = default () in
-  derive
-    (Option.value compiled_runtime_path ~default:base.compiled_runtime_path)
-    (match manifest_path with None -> Some base.manifest_path | Some _ as value -> value)
-    (Option.value wrangler_template_path ~default:base.wrangler_template_path)
-    (Option.value deploy_dir ~default:base.deploy_dir)
-    (Option.value framework_root ~default:base.framework_root)
+let default () =
+  match default_result () with Ok layout -> layout | Error msg -> failwith msg
+
+let with_overrides_result ?compile_target ?compiled_runtime_path ?manifest_path
+    ?wrangler_template_path ?deploy_dir ?framework_root () =
+  match default_result () with
+  | Error msg -> Error msg
+  | Ok base ->
+      Ok
+        (derive
+           (Option.value compile_target ~default:base.compile_target)
+           (Option.value compiled_runtime_path ~default:base.compiled_runtime_path)
+           (match manifest_path with None -> Some base.manifest_path | Some _ as value -> value)
+           (Option.value wrangler_template_path ~default:base.wrangler_template_path)
+           (Option.value deploy_dir ~default:base.deploy_dir)
+           (Option.value framework_root ~default:base.framework_root))
+
+let with_overrides ?compile_target ?compiled_runtime_path ?manifest_path
+    ?wrangler_template_path ?deploy_dir ?framework_root () =
+  match
+    with_overrides_result ?compile_target ?compiled_runtime_path ?manifest_path
+      ?wrangler_template_path ?deploy_dir ?framework_root ()
+  with
+  | Ok layout -> layout
+  | Error msg -> failwith msg

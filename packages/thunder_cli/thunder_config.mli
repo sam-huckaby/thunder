@@ -1,6 +1,12 @@
 (** Parse Thunder app configuration files. *)
 
+type compile_target = Js | Wasm
+
+val compile_target_of_string : string -> (compile_target, string) result
+val compile_target_to_string : compile_target -> string
+
 type t = {
+  compile_target : compile_target option;
   app_module : string option;
   worker_entry_path : string option;
   compiled_runtime_path : string option;

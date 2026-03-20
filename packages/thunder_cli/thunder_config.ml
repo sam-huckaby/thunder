@@ -1,4 +1,17 @@
+type compile_target = Js | Wasm
+
+let compile_target_to_string = function Js -> "js" | Wasm -> "wasm"
+
+let compile_target_of_string = function
+  | "js" -> Ok Js
+  | "wasm" -> Ok Wasm
+  | value ->
+      Error
+        ("Unsupported compile_target: " ^ value
+       ^ ". Expected one of: js, wasm")
+
 type t = {
+  compile_target : compile_target option;
   app_module : string option;
   worker_entry_path : string option;
   compiled_runtime_path : string option;
@@ -9,6 +22,7 @@ type t = {
 
 let empty =
   {
+    compile_target = None;
     app_module = None;
     worker_entry_path = None;
     compiled_runtime_path = None;
@@ -79,15 +93,20 @@ let read ~config_path =
   else
     let content = read_file config_path in
     let find key = Option.map strip_quotes (extract_value content key) in
-    Ok
-      {
-        app_module = find "app_module";
-        worker_entry_path = find "worker_entry_path";
-        compiled_runtime_path = find "compiled_runtime_path";
-        wrangler_template_path = find "wrangler_template_path";
-        deploy_dir = find "deploy_dir";
-        framework_root = find "framework_root";
-      }
+    match Option.map compile_target_of_string (find "compile_target") with
+    | Some (Error msg) -> Error (msg ^ " in " ^ config_path)
+    | None | Some (Ok _) ->
+        Ok
+          {
+            compile_target = Option.bind (find "compile_target") (fun value ->
+                match compile_target_of_string value with Ok target -> Some target | Error _ -> None);
+            app_module = find "app_module";
+            worker_entry_path = find "worker_entry_path";
+            compiled_runtime_path = find "compiled_runtime_path";
+            wrangler_template_path = find "wrangler_template_path";
+            deploy_dir = find "deploy_dir";
+            framework_root = find "framework_root";
+          }
 
 let read_if_exists ~config_path =
   if Sys.file_exists config_path then

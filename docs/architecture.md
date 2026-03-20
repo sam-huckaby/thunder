@@ -2,7 +2,7 @@
 
 This document describes the current Thunder architecture as it exists in the repository today.
 
-Thunder's job is to let an application be written in OCaml, compile that application into a Wasm-backed runtime bundle, and package that bundle so it can execute behind a thin Cloudflare Worker host.
+Thunder's job is to let an application be written in OCaml, compile that application into a JS or Wasm runtime bundle, and package that bundle so it can execute behind a thin Cloudflare Worker host.
 
 This is a current-state document. It intentionally does not describe older architecture shapes, abandoned runtime paths, or historical migration plans.
 
@@ -51,10 +51,15 @@ The JavaScript runtime under `worker_runtime/` is the Cloudflare-facing side of 
   - Normalizes init payloads.
   - Validates ABI version.
   - Initializes the runtime once.
-  - Forwards encoded request payloads to the compiled runtime backend.
+  - Selects the compiled JS or Wasm backend from the manifest.
+  - Forwards encoded request payloads to the selected runtime backend.
+- `worker_runtime/compiled_js_runtime_backend.mjs`
+  - Adapts the JS-compiled OCaml runtime to the ABI shim.
+  - Loads the selected JS runtime module.
+  - Invokes `globalThis.thunder_handle_json` without Wasm asset bootstrapping.
 - `worker_runtime/compiled_runtime_backend.mjs`
-  - Adapts the compiled OCaml runtime to the ABI shim.
-  - Ensures the runtime is bootstrapped.
+  - Adapts the Wasm-compiled OCaml runtime to the ABI shim.
+  - Ensures the Wasm runtime is bootstrapped.
   - Invokes `globalThis.thunder_handle_json`.
 - `worker_runtime/compiled_runtime_bootstrap.mjs`
   - Loads the generated runtime module.
@@ -65,6 +70,7 @@ The JavaScript runtime under `worker_runtime/` is the Cloudflare-facing side of 
 
 - `dist/worker/manifest.json`
   - Declares the deployable runtime artifact set.
+  - Declares the selected runtime kind.
   - Is the source of truth for staging and hashing.
 - `wrangler.toml`
   - The template for Worker deployment settings.

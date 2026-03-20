@@ -117,6 +117,7 @@ thunder new my-app
 cd my-app
 npm install
 dune build @worker-build
+THUNDER_COMPILE_TARGET=wasm dune build @worker-build
 dune build
 ```
 

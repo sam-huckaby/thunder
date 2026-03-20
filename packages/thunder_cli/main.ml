@@ -19,79 +19,138 @@ let parse_repeated args key =
   in
   loop [] args
 
+let parse_compiled_runtime_path args default =
+  let explicit = parse_kv args "--compiled-runtime" default in
+  if explicit <> default then explicit else parse_kv args "--wasm" default
+
+let string_of_compile_target = function
+  | Thunder_cli_lib.Project_layout.Js -> "js"
+  | Thunder_cli_lib.Project_layout.Wasm -> "wasm"
+
+let parse_compile_target args default =
+  let requested = parse_kv args "--target" (string_of_compile_target default) in
+  match Thunder_cli_lib.Thunder_config.compile_target_of_string requested with
+  | Ok Thunder_cli_lib.Thunder_config.Js -> Ok Thunder_cli_lib.Project_layout.Js
+  | Ok Thunder_cli_lib.Thunder_config.Wasm -> Ok Thunder_cli_lib.Project_layout.Wasm
+  | Error msg -> Error msg
+
 let default_artifacts layout extra =
   let base =
     [ layout.Thunder_cli_lib.Project_layout.manifest_path;
       layout.Thunder_cli_lib.Project_layout.wrangler_template_path ]
   in
   let with_assets =
-    if Sys.file_exists layout.assets_dir then layout.assets_dir :: base else base
+    match layout.Thunder_cli_lib.Project_layout.assets_dir with
+    | Some path when Sys.file_exists path -> path :: base
+    | _ -> base
   in
   with_assets @ extra
 
 let run_preview args =
-  let metadata = parse_kv args "--metadata" ".thunder/preview.json" in
-  let wasm = parse_kv args "--wasm" (Thunder_cli_lib.Project_layout.default ()).compiled_runtime_path in
-  let manifest_path = parse_kv args "--manifest-path" (Thunder_cli_lib.Project_layout.default ()).manifest_path in
-  let _runtime = parse_kv args "--runtime" "worker_runtime/index.mjs" in
-  let wrangler_template =
-    parse_kv args "--wrangler-template" (Thunder_cli_lib.Project_layout.default ()).wrangler_template_path
-  in
-  let deploy_dir = parse_kv args "--deploy-dir" (Thunder_cli_lib.Project_layout.default ()).deploy_dir in
-  let framework_root = parse_kv args "--framework-root" (Thunder_cli_lib.Project_layout.default ()).framework_root in
-  let extras = parse_repeated args "--artifact" in
-  let layout =
-    Thunder_cli_lib.Project_layout.with_overrides ~compiled_runtime_path:wasm
-      ~manifest_path ~wrangler_template_path:wrangler_template ~deploy_dir ~framework_root ()
-  in
-  let config =
-    Thunder_cli_lib.Preview_publish.
-      {
-        metadata_path = metadata;
-        artifacts = default_artifacts layout extras;
-        deploy_dir = layout.Thunder_cli_lib.Project_layout.deploy_dir;
-        wrangler_template_path = layout.Thunder_cli_lib.Project_layout.wrangler_template_path;
-        manifest_path = layout.Thunder_cli_lib.Project_layout.manifest_path;
-        framework_root = layout.Thunder_cli_lib.Project_layout.framework_root;
-        force = force_preview ();
-      }
-  in
-  match Thunder_cli_lib.Preview_publish.run config with
-  | Ok msg ->
-      print_endline msg;
-      0
+  match Thunder_cli_lib.Project_layout.default_result () with
   | Error msg ->
       prerr_endline msg;
       1
+  | Ok defaults ->
+      (match parse_compile_target args defaults.Thunder_cli_lib.Project_layout.compile_target with
+      | Error msg ->
+          prerr_endline msg;
+          2
+      | Ok compile_target ->
+          let metadata = parse_kv args "--metadata" ".thunder/preview.json" in
+          let compiled_runtime =
+            parse_compiled_runtime_path args
+              defaults.Thunder_cli_lib.Project_layout.compiled_runtime_path
+          in
+          let manifest_path = parse_kv args "--manifest-path" defaults.Thunder_cli_lib.Project_layout.manifest_path in
+          let _runtime = parse_kv args "--runtime" "worker_runtime/index.mjs" in
+          let wrangler_template =
+            parse_kv args "--wrangler-template"
+              defaults.Thunder_cli_lib.Project_layout.wrangler_template_path
+          in
+          let deploy_dir = parse_kv args "--deploy-dir" defaults.Thunder_cli_lib.Project_layout.deploy_dir in
+          let framework_root =
+            parse_kv args "--framework-root" defaults.Thunder_cli_lib.Project_layout.framework_root
+          in
+          let extras = parse_repeated args "--artifact" in
+          match
+            Thunder_cli_lib.Project_layout.with_overrides_result ~compile_target
+              ~compiled_runtime_path:compiled_runtime ~manifest_path
+              ~wrangler_template_path:wrangler_template ~deploy_dir ~framework_root ()
+          with
+          | Error msg ->
+              prerr_endline msg;
+              1
+          | Ok layout ->
+              let config =
+                Thunder_cli_lib.Preview_publish.
+                  {
+                    metadata_path = metadata;
+                    artifacts = default_artifacts layout extras;
+                    deploy_dir = layout.Thunder_cli_lib.Project_layout.deploy_dir;
+                    wrangler_template_path = layout.Thunder_cli_lib.Project_layout.wrangler_template_path;
+                    manifest_path = layout.Thunder_cli_lib.Project_layout.manifest_path;
+                    framework_root = layout.Thunder_cli_lib.Project_layout.framework_root;
+                    force = force_preview ();
+                  }
+              in
+              match Thunder_cli_lib.Preview_publish.run config with
+              | Ok msg ->
+                  print_endline msg;
+                  0
+              | Error msg ->
+                  prerr_endline msg;
+                  1)
 
 let run_deploy_prod args =
-  let wasm = parse_kv args "--wasm" (Thunder_cli_lib.Project_layout.default ()).compiled_runtime_path in
-  let manifest_path = parse_kv args "--manifest-path" (Thunder_cli_lib.Project_layout.default ()).manifest_path in
-  let _runtime = parse_kv args "--runtime" "worker_runtime/index.mjs" in
-  let wrangler_template =
-    parse_kv args "--wrangler-template" (Thunder_cli_lib.Project_layout.default ()).wrangler_template_path
-  in
-  let deploy_dir = parse_kv args "--deploy-dir" (Thunder_cli_lib.Project_layout.default ()).deploy_dir in
-  let framework_root = parse_kv args "--framework-root" (Thunder_cli_lib.Project_layout.default ()).framework_root in
-  let extras = parse_repeated args "--artifact" in
-  let layout =
-    Thunder_cli_lib.Project_layout.with_overrides ~compiled_runtime_path:wasm
-      ~manifest_path ~wrangler_template_path:wrangler_template ~deploy_dir ~framework_root ()
-  in
-  match
-    Thunder_cli_lib.Deploy_prod.run
-      ~artifacts:(default_artifacts layout extras)
-      ~deploy_dir:layout.Thunder_cli_lib.Project_layout.deploy_dir
-      ~wrangler_template_path:layout.Thunder_cli_lib.Project_layout.wrangler_template_path
-      ~manifest_path:layout.Thunder_cli_lib.Project_layout.manifest_path
-      ~framework_root:layout.Thunder_cli_lib.Project_layout.framework_root
-  with
-  | Ok msg ->
-      print_endline msg;
-      0
+  match Thunder_cli_lib.Project_layout.default_result () with
   | Error msg ->
       prerr_endline msg;
       1
+  | Ok defaults ->
+      (match parse_compile_target args defaults.Thunder_cli_lib.Project_layout.compile_target with
+      | Error msg ->
+          prerr_endline msg;
+          2
+      | Ok compile_target ->
+          let compiled_runtime =
+            parse_compiled_runtime_path args
+              defaults.Thunder_cli_lib.Project_layout.compiled_runtime_path
+          in
+          let manifest_path = parse_kv args "--manifest-path" defaults.Thunder_cli_lib.Project_layout.manifest_path in
+          let _runtime = parse_kv args "--runtime" "worker_runtime/index.mjs" in
+          let wrangler_template =
+            parse_kv args "--wrangler-template"
+              defaults.Thunder_cli_lib.Project_layout.wrangler_template_path
+          in
+          let deploy_dir = parse_kv args "--deploy-dir" defaults.Thunder_cli_lib.Project_layout.deploy_dir in
+          let framework_root =
+            parse_kv args "--framework-root" defaults.Thunder_cli_lib.Project_layout.framework_root
+          in
+          let extras = parse_repeated args "--artifact" in
+          match
+            Thunder_cli_lib.Project_layout.with_overrides_result ~compile_target
+              ~compiled_runtime_path:compiled_runtime ~manifest_path
+              ~wrangler_template_path:wrangler_template ~deploy_dir ~framework_root ()
+          with
+          | Error msg ->
+              prerr_endline msg;
+              1
+          | Ok layout ->
+              (match
+                 Thunder_cli_lib.Deploy_prod.run
+                   ~artifacts:(default_artifacts layout extras)
+                   ~deploy_dir:layout.Thunder_cli_lib.Project_layout.deploy_dir
+                   ~wrangler_template_path:layout.Thunder_cli_lib.Project_layout.wrangler_template_path
+                   ~manifest_path:layout.Thunder_cli_lib.Project_layout.manifest_path
+                   ~framework_root:layout.Thunder_cli_lib.Project_layout.framework_root
+               with
+              | Ok msg ->
+                  print_endline msg;
+                  0
+              | Error msg ->
+                  prerr_endline msg;
+                  1))
 
 let run_new args =
   match args with
@@ -161,5 +220,5 @@ let () =
   | _ :: "deploy-prod" :: args -> exit (run_deploy_prod args)
   | _ ->
       prerr_endline
-        "Usage: thunder (version | --version | new <project-name> | init [project-name] | doctor | preview-publish | deploy-prod) [--metadata PATH] [--wasm PATH] [--manifest-path PATH] [--runtime PATH] [--wrangler-template PATH] [--deploy-dir PATH] [--framework-root PATH] [--artifact PATH]";
+        "Usage: thunder (version | --version | new <project-name> | init [project-name] | doctor | preview-publish | deploy-prod) [--target js|wasm] [--metadata PATH] [--compiled-runtime PATH] [--manifest-path PATH] [--runtime PATH] [--wrangler-template PATH] [--deploy-dir PATH] [--framework-root PATH] [--artifact PATH]";
       exit 2

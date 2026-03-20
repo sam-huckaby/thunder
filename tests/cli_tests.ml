@@ -50,6 +50,17 @@ let with_cwd path f =
       Unix.chdir path;
       f ())
 
+let with_env_var name value_opt f =
+  let previous = Sys.getenv_opt name in
+  let sentinel = Filename.temp_file "thunder-env-empty" ".tmp" in
+  let set = function
+    | Some value -> Unix.putenv name value
+    | None -> Unix.putenv name sentinel
+  in
+  Fun.protect ~finally:(fun () -> set previous) (fun () ->
+      set value_opt;
+      f ())
+
 let () =
   with_temp_file "thunder-artifact" "hello" (fun artifact ->
       match Thunder_cli_lib.Artifact_hash.compute [ artifact ] with
@@ -91,51 +102,164 @@ let () =
       let dist_dir = Filename.concat dir "dist/worker" in
       Unix.mkdir worker_runtime_dir 0o755;
       Unix.mkdir (Filename.concat dir "dist") 0o755;
+       Unix.mkdir dist_dir 0o755;
+       let manifest_path = Filename.concat dist_dir "manifest.json" in
+       write_file manifest_path
+         "{\"abi_version\":1,\"app_id\":\"test-app\",\"runtime_kind\":\"wasm\",\"runtime_entry\":\"../../worker_runtime/index.mjs\",\"app_abi\":\"../../worker_runtime/app_abi.mjs\",\"generated_wasm_assets\":\"../../worker_runtime/generated_wasm_assets.mjs\",\"compiled_runtime_backend\":\"../../worker_runtime/compiled_runtime_backend.mjs\",\"bootstrap_module\":\"../../worker_runtime/compiled_runtime_bootstrap.mjs\",\"compiled_runtime\":\"thunder_runtime.mjs\",\"assets_dir\":\"thunder_runtime.assets\"}\n";
+       match Thunder_cli_lib.Deploy_manifest.parse ~manifest_path with
+       | Error e -> failwith e
+       | Ok manifest ->
+           assert_eq "manifest app id" "test-app" manifest.app_id;
+           assert_true "manifest runtime kind wasm"
+             (manifest.runtime_kind = Thunder_cli_lib.Deploy_manifest.Wasm);
+           assert_eq "manifest generated assets" "../../worker_runtime/generated_wasm_assets.mjs"
+             (Option.get manifest.generated_wasm_assets);
+           assert_eq "manifest backend" "../../worker_runtime/compiled_runtime_backend.mjs"
+             manifest.compiled_runtime_backend;
+           assert_eq "manifest compiled runtime" "thunder_runtime.mjs"
+             manifest.compiled_runtime);
+  ()
+
+let () =
+  with_temp_dir "thunder-manifest-js" (fun dir ->
+      let worker_runtime_dir = Filename.concat dir "worker_runtime" in
+      let dist_dir = Filename.concat dir "dist/worker" in
+      Unix.mkdir worker_runtime_dir 0o755;
+      Unix.mkdir (Filename.concat dir "dist") 0o755;
       Unix.mkdir dist_dir 0o755;
       let manifest_path = Filename.concat dist_dir "manifest.json" in
       write_file manifest_path
-        "{\"abi_version\":1,\"app_id\":\"test-app\",\"runtime_entry\":\"../../worker_runtime/index.mjs\",\"app_abi\":\"../../worker_runtime/app_abi.mjs\",\"generated_wasm_assets\":\"../../worker_runtime/generated_wasm_assets.mjs\",\"compiled_runtime_backend\":\"../../worker_runtime/compiled_runtime_backend.mjs\",\"bootstrap_module\":\"../../worker_runtime/compiled_runtime_bootstrap.mjs\",\"compiled_runtime\":\"thunder_runtime.mjs\",\"assets_dir\":\"thunder_runtime.assets\"}\n";
+        "{\"abi_version\":1,\"app_id\":\"js-app\",\"runtime_kind\":\"js\",\"runtime_entry\":\"../../worker_runtime/index.mjs\",\"app_abi\":\"../../worker_runtime/app_abi.mjs\",\"compiled_runtime_backend\":\"../../worker_runtime/compiled_runtime_backend.mjs\",\"compiled_runtime\":\"thunder_runtime.mjs\"}\n";
       match Thunder_cli_lib.Deploy_manifest.parse ~manifest_path with
       | Error e -> failwith e
       | Ok manifest ->
-          assert_eq "manifest app id" "test-app" manifest.app_id;
-          assert_eq "manifest generated assets" "../../worker_runtime/generated_wasm_assets.mjs"
-            manifest.generated_wasm_assets;
-          assert_eq "manifest backend" "../../worker_runtime/compiled_runtime_backend.mjs"
-            manifest.compiled_runtime_backend;
-          assert_eq "manifest compiled runtime" "thunder_runtime.mjs"
-            manifest.compiled_runtime);
-  ()
+          assert_true "manifest runtime kind js"
+            (manifest.runtime_kind = Thunder_cli_lib.Deploy_manifest.Js);
+          assert_true "manifest js omits generated assets"
+            (manifest.generated_wasm_assets = None);
+          assert_true "manifest js omits bootstrap"
+            (manifest.bootstrap_module = None);
+          assert_true "manifest js omits assets dir" (manifest.assets_dir = None))
+
+let () =
+  with_temp_dir "thunder-manifest-missing-wasm" (fun dir ->
+      let dist_dir = Filename.concat dir "dist/worker" in
+      Unix.mkdir (Filename.concat dir "dist") 0o755;
+      Unix.mkdir dist_dir 0o755;
+      let manifest_path = Filename.concat dist_dir "manifest.json" in
+      write_file manifest_path
+        "{\"abi_version\":1,\"app_id\":\"bad-app\",\"runtime_kind\":\"wasm\",\"runtime_entry\":\"../../worker_runtime/index.mjs\",\"app_abi\":\"../../worker_runtime/app_abi.mjs\",\"compiled_runtime_backend\":\"../../worker_runtime/compiled_runtime_backend.mjs\",\"compiled_runtime\":\"thunder_runtime.mjs\"}\n";
+      match Thunder_cli_lib.Deploy_manifest.parse ~manifest_path with
+      | Ok _ -> failwith "expected missing wasm field error"
+      | Error msg ->
+          assert_true "manifest missing wasm fields error"
+            (contains_substring msg "runtime_kind=wasm"))
 
 let () =
   with_temp_dir "thunder-config" (fun dir ->
       let config_path = Filename.concat dir "thunder.json" in
       write_file config_path
-        "{\"app_module\":\"My_app.Routes\",\"worker_entry_path\":\"worker/entry.ml\",\"compiled_runtime_path\":\"build/runtime.mjs\",\"wrangler_template_path\":\"config/wrangler.toml\",\"deploy_dir\":\".thunder/deploy\",\"framework_root\":\"/tmp/thunder-framework\"}\n";
+        "{\"compile_target\":\"wasm\",\"app_module\":\"My_app.Routes\",\"worker_entry_path\":\"worker/entry.ml\",\"compiled_runtime_path\":\"build/runtime.mjs\",\"wrangler_template_path\":\"config/wrangler.toml\",\"deploy_dir\":\".thunder/deploy\",\"framework_root\":\"/tmp/thunder-framework\"}\n";
       match Thunder_cli_lib.Thunder_config.read ~config_path with
       | Error e -> failwith e
       | Ok config ->
+          assert_true "config compile target wasm"
+            (Option.get config.compile_target = Thunder_cli_lib.Thunder_config.Wasm);
           assert_eq "config app module" "My_app.Routes"
             (Option.get config.app_module);
           assert_eq "config worker entry" "worker/entry.ml"
             (Option.get config.worker_entry_path);
           assert_eq "config runtime path" "build/runtime.mjs"
-            (Option.get config.compiled_runtime_path));
+             (Option.get config.compiled_runtime_path));
   ()
+
+let () =
+  with_temp_file "thunder-config-invalid" "{\"compile_target\":\"lua\"}\n"
+    (fun config_path ->
+      match Thunder_cli_lib.Thunder_config.read ~config_path with
+      | Ok _ -> failwith "expected invalid compile target error"
+      | Error msg ->
+          assert_true "invalid compile target message"
+            (contains_substring msg "Unsupported compile_target: lua"))
 
 let () =
   with_temp_dir "thunder-layout" (fun dir ->
       write_file (Filename.concat dir "thunder.json")
-        "{\"compiled_runtime_path\":\"build/runtime.mjs\",\"wrangler_template_path\":\"config/wrangler.toml\",\"deploy_dir\":\".thunder/deploy\"}\n";
+        "{\"compile_target\":\"wasm\",\"compiled_runtime_path\":\"build/runtime.mjs\",\"wrangler_template_path\":\"config/wrangler.toml\",\"deploy_dir\":\".thunder/deploy\"}\n";
       with_cwd dir (fun () ->
           let layout = Thunder_cli_lib.Project_layout.default () in
+          assert_true "layout compile target wasm"
+            (layout.Thunder_cli_lib.Project_layout.compile_target
+           = Thunder_cli_lib.Project_layout.Wasm);
           assert_eq "layout runtime path" "build/runtime.mjs"
             layout.Thunder_cli_lib.Project_layout.compiled_runtime_path;
           assert_eq "layout manifest path" "build/manifest.json"
             layout.Thunder_cli_lib.Project_layout.manifest_path;
+          assert_eq "layout wasm assets dir" "build/thunder_runtime.assets"
+            (Option.get layout.Thunder_cli_lib.Project_layout.assets_dir);
           assert_eq "layout wrangler path" "config/wrangler.toml"
             layout.Thunder_cli_lib.Project_layout.wrangler_template_path));
   ()
+
+let () =
+  with_temp_dir "thunder-layout-default-js" (fun dir ->
+      with_cwd dir (fun () ->
+          match Thunder_cli_lib.Project_layout.default_result () with
+          | Error e -> failwith e
+          | Ok layout ->
+              assert_true "layout default compile target js"
+                (layout.Thunder_cli_lib.Project_layout.compile_target
+               = Thunder_cli_lib.Project_layout.Js);
+              assert_true "layout js has no assets dir"
+                (layout.Thunder_cli_lib.Project_layout.assets_dir = None)))
+
+let () =
+  with_temp_dir "thunder-layout-override" (fun dir ->
+      write_file (Filename.concat dir "thunder.json") "{\"compile_target\":\"wasm\"}\n";
+      with_cwd dir (fun () ->
+          match
+            Thunder_cli_lib.Project_layout.with_overrides_result
+              ~compile_target:Thunder_cli_lib.Project_layout.Js ()
+          with
+          | Error e -> failwith e
+          | Ok layout ->
+              assert_true "layout override prefers cli target"
+                (layout.Thunder_cli_lib.Project_layout.compile_target
+               = Thunder_cli_lib.Project_layout.Js);
+              assert_true "layout override js omits assets dir"
+                (layout.Thunder_cli_lib.Project_layout.assets_dir = None)))
+
+let () =
+  with_temp_dir "thunder-stage-js" (fun dir ->
+      let runtime_dir = Filename.concat dir "worker_runtime" in
+      let dist_dir = Filename.concat dir "dist/worker" in
+      let deploy_dir = Filename.concat dir "deploy" in
+      Unix.mkdir runtime_dir 0o755;
+      Unix.mkdir (Filename.concat dir "dist") 0o755;
+      Unix.mkdir dist_dir 0o755;
+      let runtime_path = Filename.concat runtime_dir "index.mjs" in
+      let app_abi_path = Filename.concat runtime_dir "app_abi.mjs" in
+      let backend_path = Filename.concat runtime_dir "compiled_runtime_backend.mjs" in
+      let compiled_runtime_path = Filename.concat dist_dir "thunder_runtime.mjs" in
+      let manifest_path = Filename.concat dist_dir "manifest.json" in
+      let wrangler_path = Filename.concat dir "wrangler.toml" in
+      write_file runtime_path "export default {}\n";
+      write_file app_abi_path "export async function init() { return {}; }\n";
+      write_file backend_path "export async function initCompiledRuntimeBackend() { return {}; }\n";
+      write_file compiled_runtime_path "export default {}\n";
+      write_file manifest_path
+        "{\"abi_version\":1,\"app_id\":\"js-app\",\"runtime_kind\":\"js\",\"runtime_entry\":\"../../worker_runtime/index.mjs\",\"app_abi\":\"../../worker_runtime/app_abi.mjs\",\"compiled_runtime_backend\":\"../../worker_runtime/compiled_runtime_backend.mjs\",\"compiled_runtime\":\"thunder_runtime.mjs\"}\n";
+      write_file wrangler_path "name = \"test\"\nmain = \"ignored.mjs\"\n";
+      match
+        Thunder_cli_lib.Deploy_layout.stage ~deploy_dir ~wrangler_template_path:wrangler_path
+          ~manifest_path ~framework_root:dir
+      with
+      | Error e -> failwith e
+      | Ok staged ->
+          assert_true "stage js runtime copied" (Sys.file_exists staged.runtime_path);
+          assert_true "stage js app abi copied" (Sys.file_exists staged.app_abi_path);
+          assert_true "stage js bootstrap omitted" (staged.bootstrap_path = None);
+          assert_true "stage js assets omitted" (staged.assets_dir = None))
 
 let () =
   with_temp_dir "thunder-scaffold" (fun dir ->
@@ -167,14 +291,20 @@ let () =
           assert_true "scaffold root dune references vendored thunder cli"
             (contains_substring (read (Filename.concat destination "dune"))
                "vendor/thunder-framework/packages/thunder_cli/main.exe");
+          assert_true "scaffold root dune builds js runtime"
+            (contains_substring (read (Filename.concat destination "dune"))
+               "js_of_ocaml");
+          assert_true "scaffold thunder config defaults to js"
+            (contains_substring (read (Filename.concat destination "thunder.json"))
+               "\"compile_target\": \"js\"");
           assert_true "worker entry exports app"
             (contains_substring (read (Filename.concat destination "worker/entry.ml"))
                "Entry.export app");
-          let routes = read (Filename.concat destination "app/routes.ml") in
-          assert_true "routes mention hello from thunder"
-            (contains_substring routes "Hello from Thunder");
-          assert_true "routes scaffold styled landing page"
-            (contains_substring routes "radial-gradient(circle at 50% 18%"));
+           let routes = read (Filename.concat destination "app/routes.ml") in
+           assert_true "routes mention edit app routes"
+             (contains_substring routes "Edit app/routes.ml to start building.");
+           assert_true "routes scaffold styled landing page"
+             (contains_substring routes "radial-gradient(circle at 70% 28%"));
   ()
 
 let () =
@@ -223,10 +353,10 @@ let () =
             "export function getBundledWasmAsset() { return null; }\nexport function getBundledWasmModule() { return null; }\nexport function listBundledWasmAssets() { return []; }\n";
           write_file (Filename.concat runtime_dir "compiled_runtime_backend.mjs")
             "export async function initCompiledRuntimeBackend() { return {}; }\nexport async function handleCompiledRuntimePayload() { return '{}'; }\nexport function resetCompiledRuntimeBackendForTests() {}\n";
-          write_file bootstrap_path "export const compiledRuntimeInitError = null;\n";
-          write_file wasm_path "compiled-runtime\n";
-          write_file manifest_path
-            "{\"abi_version\":1,\"app_id\":\"test-app\",\"runtime_entry\":\"../../worker_runtime/index.mjs\",\"app_abi\":\"../../worker_runtime/app_abi.mjs\",\"generated_wasm_assets\":\"../../worker_runtime/generated_wasm_assets.mjs\",\"compiled_runtime_backend\":\"../../worker_runtime/compiled_runtime_backend.mjs\",\"bootstrap_module\":\"../../worker_runtime/compiled_runtime_bootstrap.mjs\",\"compiled_runtime\":\"thunder_runtime.mjs\",\"assets_dir\":\"thunder_runtime.assets\"}\n";
+           write_file bootstrap_path "export const compiledRuntimeInitError = null;\n";
+           write_file wasm_path "compiled-runtime\n";
+           write_file manifest_path
+             "{\"abi_version\":1,\"app_id\":\"test-app\",\"runtime_kind\":\"wasm\",\"runtime_entry\":\"../../worker_runtime/index.mjs\",\"app_abi\":\"../../worker_runtime/app_abi.mjs\",\"generated_wasm_assets\":\"../../worker_runtime/generated_wasm_assets.mjs\",\"compiled_runtime_backend\":\"../../worker_runtime/compiled_runtime_backend.mjs\",\"bootstrap_module\":\"../../worker_runtime/compiled_runtime_bootstrap.mjs\",\"compiled_runtime\":\"thunder_runtime.mjs\",\"assets_dir\":\"thunder_runtime.assets\"}\n";
           let artifacts =
             [ artifact; runtime_path; app_abi_path; generated_wasm_assets_path; bootstrap_path;
               wasm_path; manifest_path; wrangler_path; assets_dir ]
@@ -248,18 +378,19 @@ let () =
               last_preview_url = None;
               raw_wrangler_output = None;
             };
-          match
-            Thunder_cli_lib.Preview_publish.run
-              {
-                metadata_path;
-                artifacts;
-                deploy_dir = Filename.concat dir "deploy";
-                wrangler_template_path = wrangler_path;
-                manifest_path;
-                framework_root = dir;
-                force = false;
-              }
-          with
-          | Ok msg -> assert_true "skip unchanged" (String.length msg > 0)
-          | Error err -> failwith err));
+          with_env_var "CLOUDFLARE_API_TOKEN" (Some "") (fun () ->
+              match
+                Thunder_cli_lib.Preview_publish.run
+                  {
+                    metadata_path;
+                    artifacts;
+                    deploy_dir = Filename.concat dir "deploy";
+                    wrangler_template_path = wrangler_path;
+                    manifest_path;
+                    framework_root = dir;
+                    force = false;
+                  }
+              with
+              | Ok msg -> assert_true "skip unchanged" (String.length msg > 0)
+              | Error err -> failwith err)));
   print_endline "cli_tests: ok"

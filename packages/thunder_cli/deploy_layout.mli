@@ -5,10 +5,10 @@ type staged = {
   config_path : string;
   runtime_path : string;
   app_abi_path : string;
-  bootstrap_path : string;
+  bootstrap_path : string option;
   compiled_runtime_path : string;
   manifest_path : string;
-  assets_dir : string;
+  assets_dir : string option;
 }
 
 val stage :

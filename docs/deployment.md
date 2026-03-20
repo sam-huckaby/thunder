@@ -2,18 +2,19 @@
 
 This document describes how Thunder builds, stages, previews, and deploys apps to Cloudflare Workers.
 
-Thunder deploys a generated Worker runtime tree, not a raw OCaml artifact by itself. The deployable unit includes the compiled OCaml runtime bundle, Wasm assets, the Thunder Worker host, the ABI shim, and a generated Wrangler config.
+Thunder deploys a generated Worker runtime tree, not a raw OCaml artifact by itself. The deployable unit includes the selected compiled OCaml runtime bundle, any target-specific assets, the Thunder Worker host, the ABI shim, and a generated Wrangler config.
 
 ## Deployment Inputs And Outputs
 
 The main build outputs are:
 
 - `_build/default/dist/worker/thunder_runtime.mjs`
-- `_build/default/dist/worker/thunder_runtime.assets/*.wasm`
 - `_build/default/dist/worker/manifest.json`
+- `_build/default/dist/worker/thunder_runtime.assets/` for Wasm builds
 - `_build/default/deploy/wrangler.toml`
 - `_build/default/deploy/worker_runtime/index.mjs`
 - `_build/default/deploy/worker_runtime/app_abi.mjs`
+- `_build/default/deploy/worker_runtime/compiled_js_runtime_backend.mjs`
 - `_build/default/deploy/worker_runtime/compiled_runtime_backend.mjs`
 - `_build/default/deploy/worker_runtime/compiled_runtime_bootstrap.mjs`
 - `.thunder/preview.json`
@@ -57,13 +58,16 @@ If you want deployable artifacts without the preview step:
 
 ```bash
 dune build @worker-build
+
+# explicit Wasm selection
+THUNDER_COMPILE_TARGET=wasm dune build @worker-build
 ```
 
 ## Preview Publish
 
 Thunder uses Wrangler version upload for preview environments.
 
-The preview flow is driven by `dist/worker/manifest.json`, which is the source of truth for the runtime files Thunder stages and hashes.
+The preview flow is driven by `dist/worker/manifest.json`, which is the source of truth for the selected runtime kind and the files Thunder stages and hashes.
 
 Preview metadata is stored in `.thunder/preview.json` as line-based key/value data. The keys may include:
 
@@ -121,16 +125,17 @@ That makes the staged Worker host the deployed entrypoint.
 
 Thunder includes a smoke path for validating preview deployments:
 
-- local script: `scripts/preview_smoke.sh [auto]`
+- local script: `scripts/preview_smoke.sh [js|wasm]`
 - GitHub workflow: `.github/workflows/preview-smoke.yml`
 
 Local usage:
 
 ```bash
-THUNDER_SMOKE_WORKER_NAME="your-existing-worker" bash scripts/preview_smoke.sh auto
+THUNDER_SMOKE_WORKER_NAME="your-existing-worker" bash scripts/preview_smoke.sh js
+THUNDER_SMOKE_WORKER_NAME="your-existing-worker" bash scripts/preview_smoke.sh wasm
 ```
 
-The smoke script expects `CLOUDFLARE_API_TOKEN` and records preview metadata in `.thunder/preview.json`.
+The smoke script expects `CLOUDFLARE_API_TOKEN`, builds the selected target, and records preview metadata in `.thunder/preview.json`.
 
 The default smoke expectations are:
 
@@ -152,6 +157,23 @@ The staging flow:
 5. point Wrangler at the staged config
 
 This keeps preview and production deploys aligned around the same packaged runtime shape.
+
+## Target Selection
+
+Thunder supports two Worker runtime targets:
+
+- `js`
+  - the default when target is omitted
+- `wasm`
+  - the explicit Wasm-backed path
+
+The selected target is resolved from:
+
+1. `THUNDER_COMPILE_TARGET`
+2. `thunder.json` `compile_target`
+3. Thunder's default target, `js`
+
+The manifest written at build time records the resolved `runtime_kind`, and deploy staging follows that manifest rather than guessing from file presence.
 
 ## Troubleshooting
 

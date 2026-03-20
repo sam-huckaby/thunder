@@ -2,18 +2,16 @@ name: Preview Smoke
 
 on:
   workflow_dispatch:
-    inputs:
-      runtime_backend:
-        description: Runtime path to validate
-        required: true
-        default: auto
-        type: choice
-        options:
-          - auto
 
 jobs:
   preview-smoke:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        compile_target:
+          - js
+          - wasm
     steps:
       - uses: actions/checkout@v4
       - uses: ocaml/setup-ocaml@v3
@@ -27,11 +25,14 @@ jobs:
       - name: Run preview smoke
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: bash scripts/preview_smoke.sh "${{ inputs.runtime_backend }}"
+        run: bash scripts/preview_smoke.sh "${{ matrix.compile_target }}"
       - name: Upload preview metadata
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: preview-metadata-${{ inputs.runtime_backend }}
-          path: .thunder/preview.json
+          name: preview-metadata-${{ matrix.compile_target }}
+          path: |
+            .thunder/preview.json
+            .thunder/preview-smoke-${{ matrix.compile_target }}.log
+            .thunder/preview-smoke-${{ matrix.compile_target }}.summary
           if-no-files-found: warn

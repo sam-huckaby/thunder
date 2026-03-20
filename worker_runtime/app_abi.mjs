@@ -1,4 +1,12 @@
-import manifest from "../dist/worker/manifest.json" with { type: "json" };
+const manifestModule = await import("../dist/worker/manifest.json", {
+  with: { type: "json" },
+}).catch(() => import("./development_manifest.mjs"));
+const manifest = manifestModule.default;
+import {
+  handleCompiledJsRuntimePayload,
+  initCompiledJsRuntimeBackend,
+  resetCompiledJsRuntimeBackendForTests,
+} from "./compiled_js_runtime_backend.mjs";
 import {
   initCompiledRuntimeBackend,
   handleCompiledRuntimePayload,
@@ -28,6 +36,9 @@ function resolveRelativeModuleUrl(relativePath) {
 }
 
 function defaultAssetBaseUrl() {
+  if (typeof manifest.assets_dir !== "string" || manifest.assets_dir === "") {
+    return null;
+  }
   const manifestDir = resolveRelativeModuleUrl("../dist/worker/");
   if (!manifestDir) return null;
   try {
@@ -85,12 +96,24 @@ function resolveOverrideBackend() {
   };
 }
 
-function resolveRuntimeBackend() {
+function resolveManifestRuntimeKind() {
+  return manifest.runtime_kind === "js" ? "js" : "wasm";
+}
+
+function resolveRuntimeBackend(runtimeKind = resolveManifestRuntimeKind()) {
   const overrideBackend = resolveOverrideBackend();
   if (overrideBackend) return overrideBackend;
 
+  if (runtimeKind === "js") {
+    return {
+      kind: "compiled-js-runtime",
+      init: initCompiledJsRuntimeBackend,
+      handle: handleCompiledJsRuntimePayload,
+    };
+  }
+
   return {
-    kind: "compiled-runtime",
+    kind: "compiled-wasm-runtime",
     init: initCompiledRuntimeBackend,
     handle: handleCompiledRuntimePayload,
   };
@@ -156,6 +179,7 @@ export function isRuntimeInitialized() {
 export function resetForTests() {
   initializedStatePromise = null;
   runtimeInitialized = false;
+  resetCompiledJsRuntimeBackendForTests();
   resetCompiledRuntimeBackendForTests();
 }
 
@@ -165,6 +189,7 @@ export const __internal = {
   defaultAssetBaseUrl,
   normalizeInitPayload,
   makeInitResult,
+  resolveManifestRuntimeKind,
   resolveOverrideBackend,
   resolveRuntimeBackend,
 };
