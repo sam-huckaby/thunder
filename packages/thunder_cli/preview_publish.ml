@@ -103,6 +103,11 @@ let make_success_message (info : Wrangler.preview_info) =
   | None, None ->
       "Preview uploaded. Could not parse version id or preview URL from Wrangler output."
 
+let cloudflare_api_token_available () =
+  match Sys.getenv_opt "CLOUDFLARE_API_TOKEN" with
+  | Some value -> String.trim value <> ""
+  | None -> false
+
 let run config =
   match
     Deploy_manifest.referenced_paths ~framework_root:config.framework_root
@@ -138,7 +143,7 @@ let run config =
                 in
                 if (not changed) && not config.force then
                   Ok "Preview publish skipped (artifact hash unchanged)."
-                else if Sys.getenv_opt "CLOUDFLARE_API_TOKEN" = None then
+                else if not (cloudflare_api_token_available ()) then
                   Ok
                     "Preview publish skipped (CLOUDFLARE_API_TOKEN is not set in this environment)."
                 else if not (Wrangler.available ()) then

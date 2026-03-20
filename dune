@@ -1,34 +1,66 @@
 (subdir dist/worker
  (rule
   (alias worker-build)
-  (targets thunder_runtime.mjs (dir thunder_runtime.assets))
+  (target thunder_runtime_js.mjs)
   (deps %{dep:../../packages/thunder_worker/wasm_entry.bc})
   (action
    (run
-   wasm_of_ocaml
-   compile
+    js_of_ocaml
+    compile
     -o
-     thunder_runtime.mjs
-     %{dep:../../packages/thunder_worker/wasm_entry.bc}))))
+    thunder_runtime_js.mjs
+    %{dep:../../packages/thunder_worker/wasm_entry.bc})))
+
+ (rule
+  (alias worker-build)
+  (targets thunder_runtime_wasm.mjs (dir thunder_runtime_wasm.assets))
+  (deps %{dep:../../packages/thunder_worker/wasm_entry.bc})
+  (action
+   (run
+    wasm_of_ocaml
+    compile
+    -o
+    thunder_runtime_wasm.mjs
+    %{dep:../../packages/thunder_worker/wasm_entry.bc})))
+
+ (rule
+  (alias worker-build)
+  (targets thunder_runtime.mjs manifest.json (dir thunder_runtime.assets))
+  (deps thunder_runtime_js.mjs thunder_runtime_wasm.mjs thunder_runtime_wasm.assets
+        %{dep:../../scripts/render_selected_runtime.py})
+  (action
+   (run python3 %{dep:../../scripts/render_selected_runtime.py}
+    -
+    %{env:THUNDER_COMPILE_TARGET=}
+    thunder_runtime_js.mjs
+    thunder_runtime_wasm.mjs
+    thunder_runtime_wasm.assets
+    thunder_runtime.mjs
+    thunder_runtime.assets
+    manifest.json))))
 
 (subdir worker_runtime
  (rule
   (alias worker-build)
   (target generated_wasm_assets.mjs)
-  (deps (glob_files ../dist/worker/thunder_runtime.assets/*.wasm)
+  (deps (glob_files ../dist/worker/thunder_runtime_wasm.assets/*.wasm)
         %{dep:../scripts/generate_wasm_asset_map.py})
   (action
    (run python3 %{dep:../scripts/generate_wasm_asset_map.py}
-    ../dist/worker/thunder_runtime.assets %{target}))))
+    ../dist/worker/thunder_runtime_wasm.assets %{target}))))
 
 (alias
  (name worker-build)
  (deps
+   dist/worker/thunder_runtime_js.mjs
+   dist/worker/thunder_runtime_wasm.mjs
+   dist/worker/thunder_runtime_wasm.assets
    dist/worker/thunder_runtime.mjs
    dist/worker/manifest.json
-   (glob_files dist/worker/thunder_runtime.assets/*)
+   dist/worker/thunder_runtime.assets
    worker_runtime/index.mjs
    worker_runtime/app_abi.mjs
+   worker_runtime/compiled_js_runtime_backend.mjs
    worker_runtime/compiled_runtime_bootstrap.mjs
    worker_runtime/generated_wasm_assets.mjs
    worker_runtime/compiled_runtime_backend.mjs))
@@ -39,12 +71,13 @@
   (alias worker-build)
    worker_runtime/index.mjs
    worker_runtime/app_abi.mjs
+   worker_runtime/compiled_js_runtime_backend.mjs
    worker_runtime/compiled_runtime_backend.mjs
    worker_runtime/compiled_runtime_bootstrap.mjs
    worker_runtime/generated_wasm_assets.mjs
    dist/worker/thunder_runtime.mjs
    dist/worker/manifest.json
-    (glob_files dist/worker/thunder_runtime.assets/*)
+   dist/worker/thunder_runtime.assets
    %{dep:wrangler.toml}
    %{exe:packages/thunder_cli/main.exe})
  (locks thunder_preview_publish)
@@ -52,16 +85,12 @@
   (run
    %{exe:packages/thunder_cli/main.exe}
    preview-publish
-    --metadata
-    .thunder/preview.json
-    --wrangler-template
-    %{dep:wrangler.toml}
-    --deploy-dir
-    deploy
-    --wasm
-    dist/worker/thunder_runtime.mjs
-   --artifact
-   dist/worker/thunder_runtime.assets
+   --metadata
+   .thunder/preview.json
+   --wrangler-template
+   %{dep:wrangler.toml}
+   --deploy-dir
+   deploy
    --runtime
    worker_runtime/index.mjs)))
 
@@ -71,26 +100,23 @@
   (alias worker-build)
    worker_runtime/index.mjs
    worker_runtime/app_abi.mjs
+   worker_runtime/compiled_js_runtime_backend.mjs
    worker_runtime/compiled_runtime_backend.mjs
    worker_runtime/compiled_runtime_bootstrap.mjs
    worker_runtime/generated_wasm_assets.mjs
    dist/worker/thunder_runtime.mjs
    dist/worker/manifest.json
-    (glob_files dist/worker/thunder_runtime.assets/*)
+   dist/worker/thunder_runtime.assets
    %{dep:wrangler.toml}
    %{exe:packages/thunder_cli/main.exe})
  (action
   (run
    %{exe:packages/thunder_cli/main.exe}
-    deploy-prod
-    --wrangler-template
-    %{dep:wrangler.toml}
-    --deploy-dir
-    deploy
-    --wasm
-    dist/worker/thunder_runtime.mjs
-   --artifact
-   dist/worker/thunder_runtime.assets
+   deploy-prod
+   --wrangler-template
+   %{dep:wrangler.toml}
+   --deploy-dir
+   deploy
    --runtime
    worker_runtime/index.mjs)))
 
@@ -99,9 +125,9 @@
  (deps (alias worker-build) (alias preview-publish)))
 
 (rule
-  (alias runtest)
-  (deps worker_runtime/index_test.mjs worker_runtime/index.mjs
+ (alias runtest)
+ (deps worker_runtime/index_test.mjs worker_runtime/index.mjs
        worker_runtime/compiled_runtime_bootstrap.mjs worker_runtime/app_abi.mjs
-       worker_runtime/compiled_runtime_backend.mjs
+       worker_runtime/compiled_js_runtime_backend.mjs worker_runtime/compiled_runtime_backend.mjs
        worker_runtime/generated_wasm_assets.mjs)
  (action (run node --test worker_runtime/index_test.mjs)))

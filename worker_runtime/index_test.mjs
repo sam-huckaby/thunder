@@ -5,6 +5,11 @@ globalThis.__THUNDER_SKIP_BOOTSTRAP__ = true;
 const { __internal } = await import("./index.mjs");
 const { waitForGlobalHandler } = await import("./compiled_runtime_bootstrap.mjs");
 const {
+  handleCompiledJsRuntimePayload,
+  initCompiledJsRuntimeBackend,
+  resetCompiledJsRuntimeBackendForTests,
+} = await import("./compiled_js_runtime_backend.mjs");
+const {
   init: initAppAbi,
   handle: handleAppAbi,
   resetForTests,
@@ -164,7 +169,11 @@ test("app_abi init caches adapter loading", async () => {
   assert.equal(calls, 0);
   assert.equal(first.abi_version, THUNDER_ABI_JSON_VERSION);
   assert.equal(first.app_id, abiInternal.manifest.app_id);
-  assert.equal(typeof first.asset_base_url, "string");
+  if (abiInternal.manifest.runtime_kind === "wasm") {
+    assert.equal(typeof first.asset_base_url, "string");
+  } else {
+    assert.equal(first.asset_base_url, null);
+  }
   assert.deepEqual(first.capabilities, THUNDER_ABI_INIT_CAPABILITIES);
   assert.equal(first.backend_kind, "shim-override");
   assert.equal(Object.hasOwn(first, "requested_backend"), false);
@@ -185,6 +194,51 @@ test("app_abi resolveRuntimeBackend prefers shim override", async () => {
   const backend = abiInternal.resolveRuntimeBackend();
   assert.equal(backend.kind, "shim-override");
   delete globalThis.__THUNDER_WASM_SHIM__;
+  resetForTests();
+});
+
+test("app_abi resolves manifest runtime kind", () => {
+  assert.equal(abiInternal.resolveManifestRuntimeKind(), abiInternal.manifest.runtime_kind ?? "wasm");
+});
+
+test("app_abi resolves JS backend when requested", () => {
+  resetForTests();
+  const backend = abiInternal.resolveRuntimeBackend("js");
+  assert.equal(backend.kind, "compiled-js-runtime");
+});
+
+test("app_abi resolves Wasm backend when requested", () => {
+  resetForTests();
+  const backend = abiInternal.resolveRuntimeBackend("wasm");
+  assert.equal(backend.kind, "compiled-wasm-runtime");
+});
+
+test("compiled JS runtime backend uses registered global handler", async () => {
+  resetCompiledJsRuntimeBackendForTests();
+  globalThis.thunder_handle_json = (payload) =>
+    JSON.stringify({ status: 200, headers: [["x-kind", "js"]], body: payload });
+
+  const initResult = await initCompiledJsRuntimeBackend();
+  assert.equal(initResult.kind, "compiled-js-runtime");
+
+  const response = await handleCompiledJsRuntimePayload("storm");
+  assert.equal(JSON.parse(response).body, "storm");
+
+  delete globalThis.thunder_handle_json;
+  resetCompiledJsRuntimeBackendForTests();
+});
+
+test("app_abi init uses compiled backend from manifest", async () => {
+  resetForTests();
+  globalThis.thunder_handle_json = () => JSON.stringify({ status: 200, headers: [], body: "ok" });
+  const result = await initAppAbi({});
+  assert.equal(
+    result.backend_kind,
+    abiInternal.manifest.runtime_kind === "js"
+      ? "compiled-js-runtime"
+      : "compiled-wasm-runtime"
+  );
+  delete globalThis.thunder_handle_json;
   resetForTests();
 });
 
@@ -229,11 +283,15 @@ test("app_abi manifest defaults resolve asset base url", () => {
   const normalized = abiInternal.normalizeInitPayload({});
   assert.equal(normalized.app_id, abiInternal.manifest.app_id);
   assert.equal(normalized.abi_version, abiInternal.manifest.abi_version);
-  assert.equal(typeof normalized.asset_base_url, "string");
-  assert.equal(
-    normalized.asset_base_url.endsWith(`/${abiInternal.manifest.assets_dir}/`),
-    true
-  );
+  if (abiInternal.manifest.runtime_kind === "wasm") {
+    assert.equal(typeof normalized.asset_base_url, "string");
+    assert.equal(
+      normalized.asset_base_url.endsWith(`/${abiInternal.manifest.assets_dir}/`),
+      true
+    );
+  } else {
+    assert.equal(normalized.asset_base_url, null);
+  }
 });
 
 test("worker host keeps init payload minimal", () => {

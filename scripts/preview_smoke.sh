@@ -6,18 +6,21 @@ if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
   exit 1
 fi
 
-backend="${1:-auto}"
+target="${1:-js}"
 account_id="${CLOUDFLARE_ACCOUNT_ID:-}"
 worker_name_override="${THUNDER_SMOKE_WORKER_NAME:-}"
 
-if [ "$backend" != "auto" ]; then
-  echo "Unsupported backend: $backend" >&2
-  echo "Thunder now supports a single production runtime path; use 'auto'." >&2
+case "$target" in
+  js|wasm) ;;
+  *)
+  echo "Unsupported target: $target" >&2
+  echo "Use 'js' for the default runtime path or 'wasm' for the Wasm-backed path." >&2
   exit 1
-fi
+  ;;
+esac
 
-echo "Running preview smoke with runtime path=$backend"
-opam exec -- dune build @worker-build
+echo "Running preview smoke with target=$target"
+THUNDER_COMPILE_TARGET="$target" opam exec -- dune build @worker-build
 
 deploy_config=""
 for candidate in "_build/default/deploy/wrangler.toml" "_build/default/wrangler.toml"; do
@@ -33,9 +36,9 @@ if [ -z "$deploy_config" ]; then
 fi
 
 mkdir -p .thunder
-smoke_config="$(dirname "$deploy_config")/preview-smoke-${backend}.toml"
-smoke_log=".thunder/preview-smoke-${backend}.log"
-smoke_summary=".thunder/preview-smoke-${backend}.summary"
+smoke_config="$(dirname "$deploy_config")/preview-smoke-${target}.toml"
+smoke_log=".thunder/preview-smoke-${target}.log"
+smoke_summary=".thunder/preview-smoke-${target}.summary"
 
 if [ -z "$account_id" ]; then
   whoami_output="$(npx wrangler whoami)"
@@ -51,13 +54,13 @@ PY
 )"
 fi
 
-python3 - <<'PY' "$deploy_config" "$smoke_config" "$backend" "$account_id" "$worker_name_override"
+python3 - <<'PY' "$deploy_config" "$smoke_config" "$target" "$account_id" "$worker_name_override"
 from pathlib import Path
 import sys
 
 src = Path(sys.argv[1])
 dst = Path(sys.argv[2])
-backend = sys.argv[3]
+target = sys.argv[3]
 account_id = sys.argv[4]
 worker_name_override = sys.argv[5]
 content = src.read_text()
@@ -156,7 +159,7 @@ PY
 fi
 
 cat >"$smoke_summary" <<EOF
-backend=$backend
+target=$target
 version_id=$version_id
 preview_url=$preview_url
 root=pass
@@ -166,4 +169,4 @@ missing_404=pass
 EOF
 
 echo "Smoke summary written to $smoke_summary"
-echo "Next steps: record preview results in docs/runtime_parity_matrix.md"
+echo "Next steps: record preview results for $target in docs/runtime_parity_matrix.md"

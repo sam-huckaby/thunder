@@ -96,6 +96,9 @@ Build runtime artifacts only:
 
 ```bash
 dune build @worker-build
+
+# explicit Wasm build
+THUNDER_COMPILE_TARGET=wasm dune build @worker-build
 ```
 
 Run tests:
@@ -119,7 +122,8 @@ CONFIRM_PROD_DEPLOY=1 dune build @deploy-prod
 Preview smoke validation:
 
 ```bash
-THUNDER_SMOKE_WORKER_NAME="your-existing-worker" bash scripts/preview_smoke.sh auto
+THUNDER_SMOKE_WORKER_NAME="your-existing-worker" bash scripts/preview_smoke.sh js
+THUNDER_SMOKE_WORKER_NAME="your-existing-worker" bash scripts/preview_smoke.sh wasm
 ```
 
 ## 8. What Thunder builds
@@ -127,8 +131,8 @@ THUNDER_SMOKE_WORKER_NAME="your-existing-worker" bash scripts/preview_smoke.sh a
 The main generated outputs are:
 
 - `_build/default/dist/worker/thunder_runtime.mjs`
-- `_build/default/dist/worker/thunder_runtime.assets/*.wasm`
 - `_build/default/dist/worker/manifest.json`
+- `_build/default/dist/worker/thunder_runtime.assets/` when the selected target is `wasm`
 - `_build/default/deploy/wrangler.toml`
 - `_build/default/deploy/worker_runtime/index.mjs`
 - `_build/default/deploy/worker_runtime/app_abi.mjs`

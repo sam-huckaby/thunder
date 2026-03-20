@@ -151,6 +151,7 @@ jobs:
           cd "$tmp_root/my-app"
           npm install
           dune build @worker-build
+          THUNDER_COMPILE_TARGET=wasm dune build @worker-build
           env -u CLOUDFLARE_API_TOKEN dune build
 
   publish-release:
