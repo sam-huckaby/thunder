@@ -169,7 +169,11 @@ test("app_abi init caches adapter loading", async () => {
   assert.equal(calls, 0);
   assert.equal(first.abi_version, THUNDER_ABI_JSON_VERSION);
   assert.equal(first.app_id, abiInternal.manifest.app_id);
-  assert.equal(typeof first.asset_base_url, "string");
+  if (abiInternal.manifest.runtime_kind === "wasm") {
+    assert.equal(typeof first.asset_base_url, "string");
+  } else {
+    assert.equal(first.asset_base_url, null);
+  }
   assert.deepEqual(first.capabilities, THUNDER_ABI_INIT_CAPABILITIES);
   assert.equal(first.backend_kind, "shim-override");
   assert.equal(Object.hasOwn(first, "requested_backend"), false);
@@ -194,7 +198,7 @@ test("app_abi resolveRuntimeBackend prefers shim override", async () => {
 });
 
 test("app_abi resolves manifest runtime kind", () => {
-  assert.equal(abiInternal.resolveManifestRuntimeKind(), "wasm");
+  assert.equal(abiInternal.resolveManifestRuntimeKind(), abiInternal.manifest.runtime_kind ?? "wasm");
 });
 
 test("app_abi resolves JS backend when requested", () => {
@@ -224,11 +228,16 @@ test("compiled JS runtime backend uses registered global handler", async () => {
   resetCompiledJsRuntimeBackendForTests();
 });
 
-test("app_abi init uses compiled Wasm backend from manifest", async () => {
+test("app_abi init uses compiled backend from manifest", async () => {
   resetForTests();
   globalThis.thunder_handle_json = () => JSON.stringify({ status: 200, headers: [], body: "ok" });
   const result = await initAppAbi({});
-  assert.equal(result.backend_kind, "compiled-wasm-runtime");
+  assert.equal(
+    result.backend_kind,
+    abiInternal.manifest.runtime_kind === "js"
+      ? "compiled-js-runtime"
+      : "compiled-wasm-runtime"
+  );
   delete globalThis.thunder_handle_json;
   resetForTests();
 });
@@ -274,11 +283,15 @@ test("app_abi manifest defaults resolve asset base url", () => {
   const normalized = abiInternal.normalizeInitPayload({});
   assert.equal(normalized.app_id, abiInternal.manifest.app_id);
   assert.equal(normalized.abi_version, abiInternal.manifest.abi_version);
-  assert.equal(typeof normalized.asset_base_url, "string");
-  assert.equal(
-    normalized.asset_base_url.endsWith(`/${abiInternal.manifest.assets_dir}/`),
-    true
-  );
+  if (abiInternal.manifest.runtime_kind === "wasm") {
+    assert.equal(typeof normalized.asset_base_url, "string");
+    assert.equal(
+      normalized.asset_base_url.endsWith(`/${abiInternal.manifest.assets_dir}/`),
+      true
+    );
+  } else {
+    assert.equal(normalized.asset_base_url, null);
+  }
 });
 
 test("worker host keeps init payload minimal", () => {
