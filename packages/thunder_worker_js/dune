@@ -1,0 +1,5 @@
+(library
+ (name thunder_worker_js)
+ (public_name thunder.worker_js)
+ (libraries thunder_worker thunder_http js_of_ocaml)
+ (modules ai binding_rpc d1 durable_object kv primitive queues r2 service thunder_worker_js))

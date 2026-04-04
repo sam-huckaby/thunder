@@ -2,7 +2,15 @@ import {
   handle as handleAppAbi,
   init as initAppAbi,
   isRuntimeInitialized,
+  THUNDER_ABI_INIT_CAPABILITIES,
 } from "./app_abi.mjs";
+import "./binding_rpc.mjs";
+import {
+  enterRequestContext,
+  getRequestContextStrategy,
+} from "./request_context.mjs";
+
+const THUNDER_ABI_REQUEST_VERSION = 2;
 
 function resolveRelativeModuleUrl(relativePath) {
   try {
@@ -60,7 +68,7 @@ function normalizeCtxFeatures(ctx) {
   return features;
 }
 
-async function encodeRequest(request, env, ctx) {
+async function encodeRequest(request, env, ctx, requestId) {
   const headers = [];
   request.headers.forEach((value, name) => {
     headers.push([name, value]);
@@ -70,7 +78,8 @@ async function encodeRequest(request, env, ctx) {
   const body = new TextDecoder().decode(rawBody);
 
   return {
-    v: 1,
+    v: THUNDER_ABI_REQUEST_VERSION,
+    request_id: requestId,
     method: request.method,
     url: request.url,
     headers,
@@ -120,8 +129,8 @@ function decodeResponsePayload(payload) {
 
 function makeInitFailureResponse(error) {
   const message =
-    error instanceof Error ? error.message : "Unknown Wasm runtime initialization failure.";
-  return new Response(`Thunder Wasm runtime initialization failed: ${message}`, {
+    error instanceof Error ? error.message : "Unknown runtime initialization failure.";
+  return new Response(`Thunder runtime initialization failed: ${message}`, {
     status: 500,
     headers: { "content-type": "text/plain; charset=utf-8" },
   });
@@ -136,20 +145,45 @@ function makeRuntimeFailureResponse(error) {
 }
 
 function makeInitPayload(env) {
-  return {};
+  const requestedStrategy =
+    typeof env?.THUNDER_REQUEST_CONTEXT_STRATEGY === "string"
+      ? env.THUNDER_REQUEST_CONTEXT_STRATEGY
+      : "auto";
+
+  return {
+    expected_capabilities: [
+      "async_handlers",
+      "request_context_raw_env",
+      "request_context_raw_ctx",
+      "binding_rpc",
+      "binary_response_payload",
+    ].filter((capability) => THUNDER_ABI_INIT_CAPABILITIES.includes(capability)),
+    request_context_strategy: getRequestContextStrategy(requestedStrategy),
+  };
 }
 
 async function invokeRuntime(request, env, ctx) {
   const initPayload = makeInitPayload(env);
-  await initAppAbi({ initPayload });
-  return handleAppAbi({
-    request,
-    env,
-    ctx,
-    initPayload,
-    encodeRequest,
-    decodeResponsePayload,
+  const requestContext = enterRequestContext(env, ctx, {
+    strategy: initPayload.request_context_strategy,
   });
+
+  try {
+    return await requestContext.run(async () => {
+      await initAppAbi({ initPayload });
+      return handleAppAbi({
+        request,
+        env,
+        ctx,
+        initPayload,
+        encodeRequest: (nextRequest, nextEnv, nextCtx) =>
+          encodeRequest(nextRequest, nextEnv, nextCtx, requestContext.requestId),
+        decodeResponsePayload,
+      });
+    });
+  } finally {
+    requestContext.exit();
+  }
 }
 
 export default {
@@ -166,6 +200,7 @@ export default {
 };
 
 export const __internal = {
+  THUNDER_ABI_REQUEST_VERSION,
   resolveRelativeModuleUrl,
   encodeRequest,
   decodeResponsePayload,

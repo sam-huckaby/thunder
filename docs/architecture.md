@@ -25,6 +25,7 @@ The result is a Cloudflare Worker whose `fetch(request, env, ctx)` entrypoint is
   - Provides typed context storage used to attach framework and Worker-specific state to requests.
 - `packages/thunder_http`
   - Defines the public HTTP programming model: methods, status codes, headers, cookies, query parsing, requests, responses, handlers, and middleware.
+  - Re-exports first-class Cloudflare wrapper modules under `Thunder.Worker.*`.
 - `packages/thunder_router`
   - Parses route patterns, matches incoming requests, binds params, and dispatches to the winning handler.
 - `packages/thunder_worker`
@@ -42,14 +43,30 @@ The JavaScript runtime under `worker_runtime/` is the Cloudflare-facing side of 
 - `worker_runtime/index.mjs`
   - The thin Worker host.
   - Receives `fetch(request, env, ctx)`.
+  - Enters request-scoped host context for raw `env` / `ctx` access.
   - Buffers the request.
   - Builds the ABI payload.
   - Calls into the Thunder ABI shim.
   - Reconstructs a real `Response` from the runtime result.
+- `worker_runtime/request_context.mjs`
+  - Owns request-local storage for raw Worker `env` and `ctx`.
+  - Prefers `AsyncLocalStorage` when available.
+  - Falls back to a request-id keyed `Map` when ALS is unavailable.
+  - Installs global getters used by later binding-aware runtime phases.
+- `worker_runtime/binding_rpc.mjs`
+  - Owns the request-scoped binding RPC surface.
+  - Resolves real Cloudflare bindings from request-local host context.
+  - Validates allowed ops and argument shapes before calling binding methods.
+  - Returns structured success/error envelopes so OCaml wrapper layers can share one decode path.
+- `packages/thunder_worker_js/`
+  - Holds JS-only OCaml binding wrapper code that can safely depend on JS interop.
+  - Keeps native-tested core libraries free of direct binding-wrapper runtime assumptions.
+  - Is the intended home for typed binding wrappers such as KV before they are folded into wider Thunder APIs.
 - `worker_runtime/app_abi.mjs`
   - The Thunder-owned runtime shim.
   - Normalizes init payloads.
   - Validates ABI version.
+  - Validates expected capabilities.
   - Initializes the runtime once.
   - Selects the compiled JS or Wasm backend from the manifest.
   - Forwards encoded request payloads to the selected runtime backend.
@@ -83,6 +100,7 @@ Thunder applications are plain handler graphs.
 The public API exposed through `packages/thunder_http/thunder.mli` gives the app author a compact surface:
 
 - `Thunder.handler` wraps a function from `Request.t -> Response.t`.
+- `Thunder.handler_async` wraps a function from `Request.t -> Response.t Async.t`.
 - `Thunder.get`, `Thunder.post`, `Thunder.put`, `Thunder.patch`, and `Thunder.delete` construct routes.
 - `Thunder.router` converts a route list into a single handler.
 - `Thunder.Middleware` composes handler transformations around that app handler.
@@ -131,9 +149,22 @@ Two details matter for understanding the runtime:
 
 - status
 - headers
-- buffered body string
+- buffered body value (`Text` or `Bytes`)
 
 Thunder currently returns buffered responses only. There is no streaming response path in the ABI.
+
+Text helpers such as `Response.text`, `Response.html`, and `Response.json` still produce text-backed responses. `Response.bytes` produces a binary body that the runtime encodes through `body_base64` for the Worker host.
+
+### Async execution model
+
+Thunder now treats async as the internal execution shape even though existing sync apps still work unchanged.
+
+- `Handler.t` is internally modeled as `Request.t -> Response.t Async.t`
+- `Thunder.handler` lifts sync handlers with `Async.return`
+- `Thunder.handler_async` is the native async constructor
+- middleware and router execution run against the async handler shape
+
+The current `Async` implementation remains compatibility-oriented and minimal, which keeps the sync app model stable while Thunder migrates the runtime stack toward fully promise-backed binding access.
 
 ### Middleware
 
@@ -146,7 +177,7 @@ That means middleware is not a special runtime concept. It is simply handler tra
 - `logger`
   - logs the method and path before delegating
 
-Middleware composition is a pure OCaml concern and happens before any Worker-specific encoding back to JavaScript.
+Middleware composition is an OCaml concern and now operates over the async handler shape before any Worker-specific encoding back to JavaScript.
 
 ### Routing
 
@@ -166,10 +197,11 @@ This means route dispatch is fully resolved inside OCaml after the Worker reques
 
 ### Worker data inside requests
 
-`packages/thunder_worker/worker.ml` introduces two context keys:
+`packages/thunder_worker/worker.ml` introduces context keys:
 
 - one for Worker env bindings
 - one for Worker execution-context capabilities
+- one for the request id used by request-scoped host lookups
 
 The runtime uses those keys to attach Worker information onto each request. App code can then read:
 
@@ -177,8 +209,45 @@ The runtime uses those keys to attach Worker information onto each request. App 
 - `Worker.env_binding env "NAME"`
 - `Worker.ctx req`
 - `Worker.ctx_has_feature ctx "waitUntil"`
+- `Worker.request_id req`
 
-This is important because Thunder does not pass raw Worker host objects into OCaml. It passes a normalized, framework-owned representation.
+This is important because Thunder does not pass raw Worker host objects through the JSON payload into OCaml. The request payload remains normalized and framework-owned.
+
+Thunder now also prepares a request-scoped host-context side channel in the JS host. Raw `env` and `ctx` are stored request-locally and exposed through host-installed global getters. That side channel exists to support later async binding wrappers without collapsing the ABI boundary.
+
+The JS host also owns a request-scoped binding RPC surface. Initial support now exists for KV-backed `get`, `put`, and `delete` operations, all resolved from the active request context rather than from serialized ABI payload data.
+
+The next supported host primitives now include:
+
+- R2 through `r2.get` and `r2.put`, supporting buffered text and bytes access
+- D1 through `d1.query`, which prepares SQL, optionally binds JSON-encoded parameters, and executes a selected statement action such as `first`, `all`, `raw`, or `run`
+- Workers AI through `ai.run`, returning framework-owned JSON strings to the OCaml wrapper layer
+- Queues through `queue.send` and `queue.send_batch`, supporting text, bytes, and JSON-backed send flows
+- service bindings through `service.fetch`, returning normalized JSON with response status and buffered text body
+- Durable Objects through `durable_object.call`, which resolves a named stub and invokes a method with JSON-encoded positional arguments
+- generic binding invocation through `binding.invoke`, which lets JS-only wrapper code call a configured binding method with JSON-encoded positional arguments even before Thunder ships a dedicated typed wrapper
+
+Binding RPC results are normalized into framework-owned envelopes:
+
+- success: `{ ok: true, ... }`
+- failure: `{ ok: false, error: { code, message } }`
+
+That keeps host errors structured before typed OCaml wrappers are layered on top.
+
+To keep native test executables stable, the first OCaml-side wrapper work now lives behind a JS-only library boundary in `packages/thunder_worker_js/` instead of being linked directly into the core `thunder_worker` library.
+
+That package now holds:
+
+- KV wrapper modules
+- R2 wrapper modules
+- Queue wrapper modules
+- D1 wrapper modules
+- Workers AI wrapper modules
+- service binding wrapper modules
+- Durable Object wrapper modules
+- a generic binding invocation helper for unconfigured Cloudflare primitives
+
+Thunder now re-exports those stable Cloudflare wrappers through `Thunder.Worker.*`, so user code can learn Thunder's main API surface first while the JS-only package remains the implementation boundary.
 
 ## The runtime boundary
 
@@ -188,10 +257,12 @@ The JavaScript host and the OCaml runtime do not call each other using ad hoc co
 
 ### Request payload shape
 
-`worker_runtime/index.mjs` encodes each incoming request into a JSON payload with these fields:
+`worker_runtime/index.mjs` now encodes each incoming request into ABI request payload version `2` with these fields:
 
 - `v`
-  - ABI request version, currently `1`
+  - ABI request payload version, currently `2`
+- `request_id`
+  - request-local id used by the Map fallback request-context strategy
 - `method`
   - HTTP method string
 - `url`
@@ -207,7 +278,7 @@ The JavaScript host and the OCaml runtime do not call each other using ad hoc co
 - `ctx_features`
   - recognized execution-context capabilities
 
-The host currently serializes env bindings only when the values are strings, numbers, or booleans. Non-serializable bindings are ignored at this boundary.
+The host still serializes env bindings only when the values are strings, numbers, or booleans. Non-serializable bindings are ignored at this JSON boundary and remain available only through request-local host context.
 
 The host currently serializes execution context as feature flags, not as executable callbacks. Today the recognized features are:
 
@@ -216,13 +287,14 @@ The host currently serializes execution context as feature flags, not as executa
 
 ### Response payload shape
 
-The OCaml side returns JSON containing:
+The OCaml side currently returns JSON containing:
 
 - `status`
 - `headers`
-- `body`
+- `body` for text responses
+- `body_base64` for bytes responses
 
-The JavaScript host also supports `body_base64` when reconstructing a `Response`, but the current OCaml encoder in `packages/thunder_worker/entry.ml` emits `body` as a string.
+Only one body field is emitted for a given response payload. The JavaScript host prefers `body_base64` when present and otherwise reconstructs the response from `body`.
 
 ### Why the ABI exists
 
@@ -243,13 +315,15 @@ The full request path through the current system is:
 sequenceDiagram
     participant CF as Cloudflare
     participant Host as worker_runtime/index.mjs
+    participant Ctx as worker_runtime/request_context.mjs
     participant ABI as worker_runtime/app_abi.mjs
     participant Boot as compiled_runtime_backend/bootstrap
     participant OCaml as thunder_handle_json / OCaml runtime
     participant App as Thunder app
 
     CF->>Host: fetch(request, env, ctx)
-    Host->>Host: buffer body, normalize env/ctx, encode JSON payload
+    Host->>Ctx: enter request-local env/ctx context
+    Host->>Host: buffer body, normalize env/ctx, encode JSON payload v2
     Host->>ABI: init(initPayload)
     ABI->>Boot: initialize compiled runtime once
     Boot->>OCaml: register thunder_handle_json
@@ -259,6 +333,7 @@ sequenceDiagram
     App-->>OCaml: Response.t
     OCaml-->>ABI: JSON response payload
     ABI-->>Host: decoded response payload
+    Host->>Ctx: exit request-local context
     Host-->>CF: Response
 ```
 
@@ -266,16 +341,17 @@ sequenceDiagram
    - `worker_runtime/index.mjs` receives `fetch(request, env, ctx)`.
 
 2. **The host buffers and encodes the request**
-   - It iterates headers.
-   - It reads the entire request body into an `ArrayBuffer`.
-   - It creates both text and base64 body representations.
-   - It extracts serializable env bindings.
-   - It records supported context features.
+    - It iterates headers.
+    - It reads the entire request body into an `ArrayBuffer`.
+    - It creates both text and base64 body representations.
+    - It generates a request id for the ABI payload.
+    - It extracts serializable env bindings.
+    - It records supported context features.
 
 3. **The host initializes the ABI shim**
-   - `initAppAbi({ initPayload })` is called before handling the request.
-   - The current init payload is minimal and empty on the host side.
-   - `worker_runtime/app_abi.mjs` fills defaults from `dist/worker/manifest.json`.
+    - `initAppAbi({ initPayload })` is called before handling the request.
+    - The host now sends expected-capability requirements and the selected request-context strategy.
+    - `worker_runtime/app_abi.mjs` fills defaults from `dist/worker/manifest.json`.
 
 4. **The ABI shim resolves the runtime backend**
    - In normal production use, the backend is `compiled-runtime`.
@@ -291,10 +367,10 @@ sequenceDiagram
    - `worker_runtime/compiled_runtime_backend.mjs` calls `globalThis.thunder_handle_json(jsonPayload)`.
 
 7. **The OCaml entrypoint decodes the request**
-   - `packages/thunder_worker/entry.ml` parses the JSON.
-   - It validates the ABI request version.
-   - It decodes `body` or falls back to `body_base64`.
-   - It constructs `Runtime.decoded_request`.
+    - `packages/thunder_worker/entry.ml` parses the JSON.
+    - It accepts request payload version `1` or `2` during rollout.
+    - It decodes `body` or falls back to `body_base64`.
+    - It constructs `Runtime.decoded_request`.
 
 8. **Thunder constructs a framework request**
    - `packages/thunder_worker/runtime.ml` converts the decoded request into `Request.t`.
@@ -321,6 +397,7 @@ sequenceDiagram
 12. **Failures are turned into explicit Worker responses**
     - Initialization failures become `500` text responses saying runtime initialization failed.
     - Runtime invocation or malformed payload failures become `500` text responses saying runtime invocation failed.
+    - Request-local context is cleaned up in `finally`, including the Map fallback path.
 
 ## Build pipeline
 
@@ -384,6 +461,7 @@ The normalized init result includes:
 - `app_id`
 - `asset_base_url`
 - `capabilities`
+- `request_context_strategy`
 - `backend_kind`
 
 The current capability set advertised by the shim is:
@@ -393,6 +471,13 @@ The current capability set advertised by the shim is:
 - `buffered_body`
 - `env_bindings`
 - `ctx_features`
+- `async_handlers`
+- `request_context_raw_env`
+- `request_context_raw_ctx`
+- `binding_rpc`
+- `binary_response_payload`
+
+The init payload can now also carry `expected_capabilities` and `request_context_strategy`. The shim validates that every expected capability is supported before reusing or initializing the runtime.
 
 ### Backend selection
 

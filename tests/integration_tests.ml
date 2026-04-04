@@ -38,6 +38,7 @@ let run decoded = Runtime.serve (Middleware.recover app) decoded
 let base_request path =
   Runtime.
     {
+      request_id = None;
       meth = "GET";
       url = "https://example.com" ^ path;
       headers = [];
@@ -59,6 +60,11 @@ let () =
   let r = run (base_request "/") in
   assert_true "GET works" (r.status = 200);
   assert_eq "GET body" "hello" r.body
+
+let () =
+  let r = Runtime.serve_async (Middleware.recover app) (base_request "/") |> Async.run in
+  assert_true "GET async serve works" (r.status = 200);
+  assert_eq "GET async serve body" "hello" r.body
 
 let () =
   let r = run (base_request "/json") in

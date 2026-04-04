@@ -1,5 +1,45 @@
 type compile_target = Js | Wasm
 
+type cloudflare_mode = Dev_test
+
+type cloudflare_named_binding = {
+  binding : string;
+  name : string;
+}
+
+type cloudflare_r2_binding = {
+  binding : string;
+  bucket : string;
+}
+
+type cloudflare_ai_binding = { binding : string }
+
+type cloudflare_durable_object_binding = {
+  binding : string;
+  class_name : string;
+}
+
+type cloudflare_service_binding = {
+  binding : string;
+  service : string;
+}
+
+type cloudflare_resources = {
+  kv : cloudflare_named_binding list;
+  r2 : cloudflare_r2_binding list;
+  d1 : cloudflare_named_binding list;
+  queues : cloudflare_named_binding list;
+  ai : cloudflare_ai_binding list;
+  durable_objects : cloudflare_durable_object_binding list;
+  services : cloudflare_service_binding list;
+}
+
+type cloudflare = {
+  mode : cloudflare_mode option;
+  bootstrap_worker : bool option;
+  resources : cloudflare_resources;
+}
+
 let compile_target_to_string = function Js -> "js" | Wasm -> "wasm"
 
 let compile_target_of_string = function
@@ -18,6 +58,7 @@ type t = {
   wrangler_template_path : string option;
   deploy_dir : string option;
   framework_root : string option;
+  cloudflare : cloudflare option;
 }
 
 let empty =
@@ -29,6 +70,7 @@ let empty =
     wrangler_template_path = None;
     deploy_dir = None;
     framework_root = None;
+    cloudflare = None;
   }
 
 let default_path () = "thunder.json"
@@ -39,74 +81,133 @@ let read_file path =
     ~finally:(fun () -> close_in_noerr ic)
     (fun () -> really_input_string ic (in_channel_length ic))
 
-let trim = String.trim
+let cloudflare_mode_of_string = function
+  | "dev_test" -> Ok Dev_test
+  | value -> Error ("Unsupported cloudflare.mode: " ^ value ^ ". Expected: dev_test")
 
-let strip_quotes value =
-  let value = trim value in
-  let len = String.length value in
-  if len >= 2 && value.[0] = '"' && value.[len - 1] = '"' then
-    String.sub value 1 (len - 2)
-  else value
+let parse_named_binding ~field_name ~name_field = function
+  | Simple_json.Object _ as value ->
+      (match (Simple_json.string_field field_name value, Simple_json.string_field name_field value) with
+      | Some binding, Some name -> Ok { binding; name }
+      | _ -> Error ("Cloudflare resource entry must include '" ^ field_name ^ "' and '" ^ name_field ^ "'"))
+  | _ -> Error "Cloudflare resource entry must be an object"
 
-let extract_value content key =
-  let marker = Printf.sprintf "\"%s\"" key in
-  let rec find_marker start =
-    match String.index_from_opt content start '"' with
-    | None -> None
-    | Some idx ->
-        let remaining = String.length content - idx in
-        if remaining >= String.length marker
-           && String.sub content idx (String.length marker) = marker
-        then Some idx
-        else find_marker (idx + 1)
+let parse_ai_binding = function
+  | Simple_json.Object _ as value ->
+      (match Simple_json.string_field "binding" value with
+      | Some binding -> Ok { binding }
+      | None -> Error "Cloudflare AI entry must include 'binding'")
+  | _ -> Error "Cloudflare AI entry must be an object"
+
+let parse_r2_binding = function
+  | Simple_json.Object _ as value ->
+      (match (Simple_json.string_field "binding" value, Simple_json.string_field "bucket" value) with
+      | Some binding, Some bucket -> Ok { binding; bucket }
+      | _ -> Error "Cloudflare R2 entry must include 'binding' and 'bucket'")
+  | _ -> Error "Cloudflare R2 entry must be an object"
+
+let parse_durable_object_binding = function
+  | Simple_json.Object _ as value ->
+      (match (Simple_json.string_field "binding" value, Simple_json.string_field "class_name" value) with
+      | Some binding, Some class_name -> Ok { binding; class_name }
+      | _ -> Error "Cloudflare durable object entry must include 'binding' and 'class_name'")
+  | _ -> Error "Cloudflare durable object entry must be an object"
+
+let parse_service_binding = function
+  | Simple_json.Object _ as value ->
+      (match (Simple_json.string_field "binding" value, Simple_json.string_field "service" value) with
+      | Some binding, Some service -> Ok { binding; service }
+      | _ -> Error "Cloudflare service entry must include 'binding' and 'service'")
+  | _ -> Error "Cloudflare service entry must be an object"
+
+let parse_list parse_one values =
+  let rec loop acc = function
+    | [] -> Ok (List.rev acc)
+    | item :: rest ->
+        (match parse_one item with Ok parsed -> loop (parsed :: acc) rest | Error _ as e -> e)
   in
-  match find_marker 0 with
-  | None -> None
-  | Some marker_idx ->
-      let after_marker = marker_idx + String.length marker in
-      (match String.index_from_opt content after_marker ':' with
-      | None -> None
-      | Some colon_idx ->
-          let rec skip_ws idx =
-            if idx >= String.length content then idx
-            else
-              match content.[idx] with
-              | ' ' | '\n' | '\r' | '\t' -> skip_ws (idx + 1)
-              | _ -> idx
+  loop [] values
+
+let parse_resources json =
+  let get_array name = match Simple_json.array_field name json with Some values -> values | None -> [] in
+  match
+    parse_list (parse_named_binding ~field_name:"binding" ~name_field:"name") (get_array "kv")
+  with
+  | Error _ as e -> e
+  | Ok kv ->
+      (match parse_list parse_r2_binding (get_array "r2") with
+      | Error _ as e -> e
+      | Ok r2 ->
+          (match parse_list (parse_named_binding ~field_name:"binding" ~name_field:"name") (get_array "d1") with
+          | Error _ as e -> e
+          | Ok d1 ->
+              (match parse_list (parse_named_binding ~field_name:"binding" ~name_field:"queue") (get_array "queues") with
+              | Error _ as e -> e
+              | Ok queues ->
+                  (match parse_list parse_ai_binding (get_array "ai") with
+                  | Error _ as e -> e
+                  | Ok ai ->
+                      (match parse_list parse_durable_object_binding (get_array "durable_objects") with
+                      | Error _ as e -> e
+                      | Ok durable_objects ->
+                          (match parse_list parse_service_binding (get_array "services") with
+                          | Error _ as e -> e
+                          | Ok services ->
+                              Ok { kv; r2; d1; queues; ai; durable_objects; services }))))))
+
+let parse_cloudflare = function
+  | Simple_json.Object _ as value ->
+      let mode =
+        match Simple_json.string_field "mode" value with
+        | None -> Ok None
+        | Some mode -> (match cloudflare_mode_of_string mode with Ok item -> Ok (Some item) | Error _ as e -> e)
+      in
+      (match mode with
+      | Error _ as e -> e
+      | Ok mode ->
+          let bootstrap_worker = Simple_json.bool_field "bootstrap_worker" value in
+          let resources_json =
+            match Simple_json.object_field "resources" value with Some (Simple_json.Object _ as item) -> item | _ -> Simple_json.Object []
           in
-          let value_idx = skip_ws (colon_idx + 1) in
-          if value_idx >= String.length content then None
-          else if content.[value_idx] = '"' then
-            let rec find_end idx =
-              if idx >= String.length content then None
-              else if content.[idx] = '"' then Some idx
-              else find_end (idx + 1)
-            in
-            Option.map
-              (fun end_idx -> String.sub content value_idx (end_idx - value_idx + 1))
-              (find_end (value_idx + 1))
-          else None)
+          match parse_resources resources_json with
+          | Ok resources -> Ok { mode; bootstrap_worker; resources }
+          | Error _ as e -> e)
+  | _ -> Error "cloudflare must be an object"
 
 let read ~config_path =
   if not (Sys.file_exists config_path) then
     Error ("Missing Thunder config: " ^ config_path)
   else
-    let content = read_file config_path in
-    let find key = Option.map strip_quotes (extract_value content key) in
-    match Option.map compile_target_of_string (find "compile_target") with
-    | Some (Error msg) -> Error (msg ^ " in " ^ config_path)
-    | None | Some (Ok _) ->
-        Ok
-          {
-            compile_target = Option.bind (find "compile_target") (fun value ->
-                match compile_target_of_string value with Ok target -> Some target | Error _ -> None);
-            app_module = find "app_module";
-            worker_entry_path = find "worker_entry_path";
-            compiled_runtime_path = find "compiled_runtime_path";
-            wrangler_template_path = find "wrangler_template_path";
-            deploy_dir = find "deploy_dir";
-            framework_root = find "framework_root";
-          }
+    match Simple_json.parse (read_file config_path) with
+    | Error msg -> Error (msg ^ " in " ^ config_path)
+    | Ok (Simple_json.Object _ as json) ->
+        let compile_target =
+          match Simple_json.string_field "compile_target" json with
+          | None -> Ok None
+          | Some value ->
+              (match compile_target_of_string value with Ok target -> Ok (Some target) | Error msg -> Error (msg ^ " in " ^ config_path))
+        in
+        let cloudflare =
+          match Simple_json.object_field "cloudflare" json with
+          | None -> Ok None
+          | Some value -> (match parse_cloudflare value with Ok item -> Ok (Some item) | Error msg -> Error (msg ^ " in " ^ config_path))
+        in
+        (match (compile_target, cloudflare) with
+        | Error msg, _ -> Error msg
+        | _, Error msg -> Error msg
+        | Ok compile_target, Ok cloudflare ->
+            Ok
+              {
+                compile_target;
+                app_module = Simple_json.string_field "app_module" json;
+                worker_entry_path = Simple_json.string_field "worker_entry_path" json;
+                compiled_runtime_path = Simple_json.string_field "compiled_runtime_path" json;
+                wrangler_template_path = Simple_json.string_field "wrangler_template_path" json;
+                deploy_dir = Simple_json.string_field "deploy_dir" json;
+                framework_root = Simple_json.string_field "framework_root" json;
+                cloudflare;
+              })
+    | Ok _ -> Error ("Thunder config root must be an object in " ^ config_path)
 
 let read_if_exists ~config_path =
   if Sys.file_exists config_path then

@@ -14,7 +14,7 @@
 | Streaming responses | Not supported | Thunder uses buffered responses |
 | Multipart forms | Not supported | No multipart parser |
 | WebSockets | Not supported | No WebSocket API |
-| Durable Objects/KV/D1 convenience APIs | Not supported | No convenience wrappers yet |
+| Cloudflare binding wrappers via `Thunder.Worker.*` | Supported | KV, R2, D1, Queues, Workers AI, service bindings, Durable Objects, plus generic invoke |
 | Static assets pipeline | Not supported | No built-in static assets flow |
 
 ## Supported
@@ -26,6 +26,7 @@
 - router with static and named params
 - middleware (`logger`, `recover`, header injection)
 - Worker env and ctx attachment through request context
+- Cloudflare binding wrappers through `Thunder.Worker.*`
 - preview publish on `dune build`
 - explicit production deploy through `@deploy-prod`
 
@@ -34,8 +35,6 @@
 - streaming responses
 - multipart form parsing
 - WebSockets
-- Durable Objects convenience helpers
-- KV and D1 convenience wrappers
 - static assets pipeline
 
 ## Current Limits
@@ -45,3 +44,5 @@
 - no multipart parser
 - no WebSockets
 - Cloudflare Workers target only
+- Cloudflare binding wrappers are exposed through `Thunder.Worker.*`, with JS-only implementation details still living under `thunder.worker_js`
+- AI support is buffered and non-streaming; streaming remains deferred

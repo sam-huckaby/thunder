@@ -63,7 +63,7 @@ let run_preview args =
               defaults.Thunder_cli_lib.Project_layout.compiled_runtime_path
           in
           let manifest_path = parse_kv args "--manifest-path" defaults.Thunder_cli_lib.Project_layout.manifest_path in
-          let _runtime = parse_kv args "--runtime" "worker_runtime/index.mjs" in
+          let runtime = parse_kv args "--runtime" "worker_runtime/index.mjs" in
           let wrangler_template =
             parse_kv args "--wrangler-template"
               defaults.Thunder_cli_lib.Project_layout.wrangler_template_path
@@ -82,6 +82,17 @@ let run_preview args =
               prerr_endline msg;
               1
           | Ok layout ->
+              let has_durable_objects =
+                match
+                  Thunder_cli_lib.Thunder_config.read
+                    ~config_path:(Thunder_cli_lib.Thunder_config.default_path ())
+                with
+                | Ok config_file ->
+                    (match config_file.Thunder_cli_lib.Thunder_config.cloudflare with
+                    | Some cloudflare -> cloudflare.resources.durable_objects <> []
+                    | None -> false)
+                | Error _ -> false
+              in
               let config =
                 Thunder_cli_lib.Preview_publish.
                   {
@@ -90,7 +101,9 @@ let run_preview args =
                     deploy_dir = layout.Thunder_cli_lib.Project_layout.deploy_dir;
                     wrangler_template_path = layout.Thunder_cli_lib.Project_layout.wrangler_template_path;
                     manifest_path = layout.Thunder_cli_lib.Project_layout.manifest_path;
+                    runtime_path = runtime;
                     framework_root = layout.Thunder_cli_lib.Project_layout.framework_root;
+                    has_durable_objects;
                     force = force_preview ();
                   }
               in
@@ -118,7 +131,7 @@ let run_deploy_prod args =
               defaults.Thunder_cli_lib.Project_layout.compiled_runtime_path
           in
           let manifest_path = parse_kv args "--manifest-path" defaults.Thunder_cli_lib.Project_layout.manifest_path in
-          let _runtime = parse_kv args "--runtime" "worker_runtime/index.mjs" in
+          let runtime = parse_kv args "--runtime" "worker_runtime/index.mjs" in
           let wrangler_template =
             parse_kv args "--wrangler-template"
               defaults.Thunder_cli_lib.Project_layout.wrangler_template_path
@@ -140,11 +153,12 @@ let run_deploy_prod args =
               (match
                  Thunder_cli_lib.Deploy_prod.run
                    ~artifacts:(default_artifacts layout extras)
-                   ~deploy_dir:layout.Thunder_cli_lib.Project_layout.deploy_dir
-                   ~wrangler_template_path:layout.Thunder_cli_lib.Project_layout.wrangler_template_path
-                   ~manifest_path:layout.Thunder_cli_lib.Project_layout.manifest_path
-                   ~framework_root:layout.Thunder_cli_lib.Project_layout.framework_root
-               with
+                    ~deploy_dir:layout.Thunder_cli_lib.Project_layout.deploy_dir
+                    ~wrangler_template_path:layout.Thunder_cli_lib.Project_layout.wrangler_template_path
+                    ~manifest_path:layout.Thunder_cli_lib.Project_layout.manifest_path
+                    ~runtime_path:runtime
+                    ~framework_root:layout.Thunder_cli_lib.Project_layout.framework_root
+                with
               | Ok msg ->
                   print_endline msg;
                   0
@@ -209,16 +223,56 @@ let run_version () =
   print_endline Thunder_cli_lib.Version.current;
   0
 
+let run_cloudflare_status args =
+  let pretty = List.exists (( = ) "--pretty") args in
+  let config_path = Thunder_cli_lib.Thunder_config.default_path () in
+  match Thunder_cli_lib.Thunder_config.read ~config_path with
+  | Error msg ->
+      prerr_endline msg;
+      2
+  | Ok config ->
+      let state_path = Thunder_cli_lib.Cloudflare_state.default_path () in
+      let state = Thunder_cli_lib.Cloudflare_state.read_if_exists ~path:state_path in
+      let status = Thunder_cli_lib.Cloudflare_status.run ~ops:Thunder_cli_lib.Cloudflare_status.default_ops config state in
+      if pretty then print_endline (Thunder_cli_lib.Cloudflare_status.render_pretty status)
+      else
+        print_endline
+          (Thunder_cli_lib.Simple_json.to_string
+             (Thunder_cli_lib.Cloudflare_status.to_json status));
+      if status.ok then 0 else 1
+
+let run_cloudflare_provision args =
+  let debug = List.exists (( = ) "--debug") args in
+  match Thunder_cli_lib.Cloudflare_commands.run_provision ~debug ~config_path:(Thunder_cli_lib.Thunder_config.default_path ()) with
+  | Ok msg ->
+      print_endline msg;
+      0
+  | Error msg ->
+      prerr_endline msg;
+      1
+
 let () =
   let argv = Array.to_list Sys.argv in
   match argv with
   | _ :: ("--version" | "version") :: _ -> exit (run_version ())
   | _ :: "doctor" :: _ -> exit (run_doctor ())
+  | _ :: "cloudflare" :: "provision" :: args -> exit (run_cloudflare_provision args)
+  | _ :: "cloudflare" :: "status" :: args -> exit (run_cloudflare_status args)
   | _ :: "init" :: args -> exit (run_init args)
   | _ :: "new" :: args -> exit (run_new args)
   | _ :: "preview-publish" :: args -> exit (run_preview args)
   | _ :: "deploy-prod" :: args -> exit (run_deploy_prod args)
   | _ ->
       prerr_endline
-        "Usage: thunder (version | --version | new <project-name> | init [project-name] | doctor | preview-publish | deploy-prod) [--target js|wasm] [--metadata PATH] [--compiled-runtime PATH] [--manifest-path PATH] [--runtime PATH] [--wrangler-template PATH] [--deploy-dir PATH] [--framework-root PATH] [--artifact PATH]";
+        "Usage:\n\
+        \t thunder\n\
+        \t\t version\n\
+        \t\t --version\n\
+        \t\t doctor\n\
+        \t\t new <project-name>\n\
+        \t\t init [project-name]\n\
+        \t\t cloudflare provision [--debug]\n\
+        \t\t cloudflare status [--pretty]\n\
+        \t\t preview-publish [--target js|wasm] [--metadata PATH] [--compiled-runtime PATH] [--manifest-path PATH] [--runtime PATH] [--wrangler-template PATH] [--deploy-dir PATH] [--framework-root PATH] [--artifact PATH]\n\
+        \t\t deploy-prod [--target js|wasm] [--compiled-runtime PATH] [--manifest-path PATH] [--runtime PATH] [--wrangler-template PATH] [--deploy-dir PATH] [--framework-root PATH] [--artifact PATH]";
       exit 2

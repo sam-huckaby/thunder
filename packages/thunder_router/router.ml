@@ -93,7 +93,7 @@ let dispatch t req =
 
 let router routes =
   let compiled = make routes in
-  Handler.handler (fun req ->
+  Handler.handler_async (fun req ->
       match dispatch compiled req with
-      | Some handler, enriched -> Handler.run handler enriched
-      | None, _ -> Response.text ~status:Status.not_found "Not Found")
+      | Some handler, enriched -> Handler.run_async handler enriched
+      | None, _ -> Async.return (Response.text ~status:Status.not_found "Not Found"))

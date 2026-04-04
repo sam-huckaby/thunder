@@ -8,5 +8,6 @@ module Cookie = Cookie
 module Query = Query
 module Request = Request
 module Response = Response
+module Async = Async
 module Handler = Handler
 module Middleware = Middleware

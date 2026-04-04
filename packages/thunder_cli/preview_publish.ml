@@ -4,9 +4,16 @@ type config = {
   deploy_dir : string;
   wrangler_template_path : string;
   manifest_path : string;
+  runtime_path : string;
   framework_root : string;
+  has_durable_objects : bool;
   force : bool;
 }
+
+let relative_to_workdir ~workdir path =
+  let prefix = workdir ^ "/" in
+  if String.starts_with ~prefix path then String.sub path (String.length prefix) (String.length path - String.length prefix)
+  else Filename.basename path
 
 type metadata = {
   artifact_hash : string option;
@@ -90,18 +97,25 @@ let write_metadata ~metadata_path metadata =
       write_opt "last_preview_url" metadata.last_preview_url;
       write_opt "raw_wrangler_output" metadata.raw_wrangler_output)
 
-let make_success_message (info : Wrangler.preview_info) =
+let make_success_message ~has_durable_objects (info : Wrangler.preview_info) =
   match (info.version_id, info.preview_url) with
   | Some version_id, Some preview_url ->
       "Preview uploaded. version_id=" ^ version_id ^ " preview_url=" ^ preview_url
   | Some version_id, None ->
-      "Preview uploaded. version_id=" ^ version_id
-      ^ " (preview URL not found in Wrangler output)."
+      if has_durable_objects then
+        "Preview uploaded. version_id=" ^ version_id
+        ^ " (preview URL unavailable because Cloudflare does not generate preview URLs for Workers with Durable Objects)."
+      else
+        "Preview uploaded. version_id=" ^ version_id
+        ^ " (Wrangler did not report a preview URL)."
   | None, Some preview_url ->
       "Preview uploaded. preview_url=" ^ preview_url
       ^ " (version id not found in Wrangler output)."
   | None, None ->
-      "Preview uploaded. Could not parse version id or preview URL from Wrangler output."
+      if has_durable_objects then
+        "Preview uploaded. Cloudflare did not report a preview URL, and Durable Objects currently prevent preview URL generation."
+      else
+        "Preview uploaded. Could not parse version id or preview URL from Wrangler output."
 
 let cloudflare_api_token_available () =
   match Sys.getenv_opt "CLOUDFLARE_API_TOKEN" with
@@ -149,7 +163,13 @@ let run config =
                 else if not (Wrangler.available ()) then
                   Ok "Preview publish skipped (Wrangler not available in this environment)."
                 else
-                  let result = Wrangler.preview_upload ~config_path:staged.config_path in
+                  let result =
+                    let workdir = Filename.dirname staged.config_path in
+                    let runtime_path = relative_to_workdir ~workdir staged.runtime_path in
+                    Wrangler.preview_upload ~workdir:(Some workdir)
+                      ~config_path:(Filename.basename staged.config_path)
+                      ~runtime_path:(Some runtime_path)
+                  in
                   match result.status with
                   | Unix.WEXITED 0 ->
                       let info = Wrangler.parse_preview_info ~stdout:result.stdout ~stderr:result.stderr in
@@ -164,7 +184,7 @@ let run config =
                         }
                       in
                       write_metadata ~metadata_path:config.metadata_path updated;
-                      Ok (make_success_message info)
+                      Ok (make_success_message ~has_durable_objects:config.has_durable_objects info)
                   | status ->
                       Error
                         ("Wrangler preview upload failed: " ^ string_of_status status ^ "\n"

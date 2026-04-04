@@ -79,8 +79,10 @@ Set your Cloudflare account id in `wrangler.toml`:
 
 ```toml
 account_id = "<your-cloudflare-account-id>"
-compatibility_flags = ["nodejs_compat"]
+compatibility_flags = ["nodejs_als"]
 ```
+
+If your app already uses broader Node compatibility, `nodejs_compat` also works. Thunder's request-context propagation only requires `nodejs_als`.
 
 Find your account id with:
 
@@ -89,6 +91,16 @@ npx wrangler whoami
 ```
 
 If `CLOUDFLARE_API_TOKEN` is not set, `dune build` still succeeds and preview upload is skipped.
+
+For supported dev/test setup, Thunder's intended flow is now:
+
+```bash
+thunder cloudflare provision
+thunder cloudflare status
+thunder cloudflare status --pretty
+```
+
+`thunder cloudflare status` returns JSON by default so CI and agents can inspect it directly.
 
 ## 7. Useful commands
 
@@ -105,6 +117,14 @@ Run tests:
 
 ```bash
 dune runtest
+```
+
+Provision or inspect Cloudflare resources:
+
+```bash
+thunder cloudflare provision
+thunder cloudflare status
+thunder cloudflare status --pretty
 ```
 
 Force a preview upload:
@@ -151,7 +171,24 @@ The files you will work with most often are:
 
 Thunder also places framework-owned runtime and packaging pieces in the generated app so the app can build and deploy with the Thunder toolchain.
 
-## 10. Working on the framework repo
+## 10. Cloudflare bindings through Thunder
+
+Thunder exposes Cloudflare-specific wrappers through `Thunder.Worker.*`, so app code can stay inside the main Thunder API surface.
+
+Examples include:
+
+- `Thunder.Worker.KV`
+- `Thunder.Worker.R2`
+- `Thunder.Worker.D1`
+- `Thunder.Worker.Queues`
+- `Thunder.Worker.AI`
+- `Thunder.Worker.Service`
+- `Thunder.Worker.Durable_object`
+- `Thunder.Worker.Generic`
+
+See `docs/examples.md` for example binding names and `wrangler.toml` snippets.
+
+## 11. Working on the framework repo
 
 If you are developing Thunder itself from this repository, use the repo root commands:
 
@@ -167,7 +204,7 @@ The app deployed from the framework repo is defined in `packages/thunder_worker/
 
 The `examples/` directory is for reference examples and local learning.
 
-## 11. Troubleshooting
+## 12. Troubleshooting
 
 - `Program odoc not found`: run `opam install odoc`
 - preview upload skipped: export `CLOUDFLARE_API_TOKEN`
@@ -177,7 +214,7 @@ The `examples/` directory is for reference examples and local learning.
 - deploy tree missing: run `dune build` and inspect `_build/default/deploy/`
 - preview smoke needs an existing Worker name: set `THUNDER_SMOKE_WORKER_NAME`
 
-## 12. Next reading
+## 13. Next reading
 
 - `docs/architecture.md`
 - `docs/deployment.md`

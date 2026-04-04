@@ -1,5 +1,3 @@
-const COMPILED_RUNTIME_MODULE_PATH = "../dist/worker/thunder_runtime.mjs";
-
 let initialized = false;
 let initPromise = null;
 
@@ -11,7 +9,7 @@ export async function initCompiledJsRuntimeBackend() {
 
   if (!initPromise) {
     initPromise = (async () => {
-      await import(COMPILED_RUNTIME_MODULE_PATH);
+      await import("../dist/worker/thunder_runtime.mjs");
       if (typeof globalThis.thunder_handle_json !== "function") {
         throw new Error(
           "Compiled JS runtime module loaded but did not register thunder_handle_json."
