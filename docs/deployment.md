@@ -105,8 +105,10 @@ It should include your Cloudflare account id:
 
 ```toml
 account_id = "<your-cloudflare-account-id>"
-compatibility_flags = ["nodejs_compat"]
+compatibility_flags = ["nodejs_als"]
 ```
+
+If your app already relies on broader Node compatibility, `nodejs_compat` also works. Thunder's request-context propagation only requires `nodejs_als`.
 
 Find your account id with:
 
@@ -120,6 +122,41 @@ The staged config is rendered so that:
 - `find_additional_modules = true`
 
 That makes the staged Worker host the deployed entrypoint.
+
+## Binding-heavy apps
+
+When you use `Thunder.Worker.*` Cloudflare wrappers, your app `wrangler.toml` should declare the matching Cloudflare bindings explicitly. Common bindings include:
+
+- `MY_KV` for KV namespace examples
+- `FILES` for R2 examples
+- `JOBS` for Queue producer examples
+- `DB` for D1 examples
+- `AI` for Workers AI examples
+- `API` for service binding examples
+- `MY_DO` for Durable Object examples
+
+Workers AI remains remote even during local development, so routine CI should prefer mocked host RPC tests while real AI validation is reserved for explicit credentialed checks.
+
+## Thunder provisioning flow
+
+Thunder's intended dev/test setup path is:
+
+```bash
+thunder cloudflare provision
+thunder cloudflare status
+thunder cloudflare status --pretty
+```
+
+Provisioning is currently aimed at dev/test environments:
+
+- supported auto-create flow: KV, R2, D1, Queues
+- supported auto-wire flow: Workers AI, Durable Objects
+- service bindings are currently adopt-existing in the first pass
+- Worker bootstrap deploy happens automatically as part of provisioning
+- Thunder does not destroy resources automatically in this first release
+- provisioning should fail if Thunder state is bound to a different Cloudflare account than the one currently authenticated through Wrangler
+
+`thunder cloudflare status` emits JSON by default and should be the preferred interface for CI and agent validation. Use `--pretty` for human-readable inspection.
 
 ## Preview Smoke Validation
 

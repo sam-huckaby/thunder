@@ -100,6 +100,88 @@ let render_wrangler_config template =
   in
   String.concat "\n" with_modules
 
+let extract_durable_object_classes config_contents =
+  config_contents
+  |> String.split_on_char '\n'
+  |> List.filter_map (fun line ->
+         let trimmed = trim line in
+         if String.starts_with ~prefix:"class_name =" trimmed then
+           match List.rev (String.split_on_char '=' trimmed) with
+           | value :: _ ->
+               let value = trim value in
+               let len = String.length value in
+               if len >= 2 && value.[0] = '"' && value.[len - 1] = '"' then
+                 Some (String.sub value 1 (len - 2))
+               else Some value
+           | [] -> None
+         else None)
+
+let append_durable_object_exports ~runtime_dst ~class_names =
+  if class_names = [] then ()
+  else
+    let existing = read_file runtime_dst in
+    let additions =
+      class_names
+      |> List.map (fun class_name ->
+             Printf.sprintf
+               "\nexport class %s {\n  async fetch(_request) {\n    return new Response(\"Thunder Durable Object placeholder\", { status: 501 });\n  }\n}\n"
+               class_name)
+      |> String.concat ""
+    in
+    write_file runtime_dst (existing ^ additions)
+
+let quoted value = Printf.sprintf "%S" value
+
+let render_development_manifest manifest =
+  let optional_string_field key = function
+    | Some value -> Printf.sprintf "  %s: %s,\n" key (quoted value)
+    | None -> ""
+  in
+  "export default {\n"
+  ^ Printf.sprintf "  abi_version: %d,\n" manifest.Deploy_manifest.abi_version
+  ^ Printf.sprintf "  app_id: %s,\n" (quoted manifest.app_id)
+  ^ Printf.sprintf
+      "  runtime_kind: %s,\n"
+      (quoted
+         (match manifest.runtime_kind with Deploy_manifest.Js -> "js" | Deploy_manifest.Wasm -> "wasm"))
+  ^ Printf.sprintf "  runtime_entry: %s,\n" (quoted manifest.runtime_entry)
+  ^ Printf.sprintf "  app_abi: %s,\n" (quoted manifest.app_abi)
+  ^ optional_string_field "generated_wasm_assets" manifest.generated_wasm_assets
+  ^ Printf.sprintf "  compiled_runtime_backend: %s,\n"
+      (quoted manifest.compiled_runtime_backend)
+  ^ optional_string_field "bootstrap_module" manifest.bootstrap_module
+  ^ Printf.sprintf "  compiled_runtime: %s,\n" (quoted manifest.compiled_runtime)
+  ^ optional_string_field "assets_dir" manifest.assets_dir
+  ^ "};\n"
+
+let runtime_support_files =
+  [ "index.mjs";
+    "request_context.mjs";
+    "binding_rpc.mjs";
+    "app_abi.mjs";
+    "development_manifest.mjs";
+    "compiled_js_runtime_backend.mjs";
+    "compiled_runtime_backend.mjs";
+    "compiled_runtime_bootstrap.mjs" ]
+
+let copy_runtime_support_files ~runtime_src ~framework_root ~deploy_dir =
+  let deploy_runtime_dir = Filename.concat deploy_dir "worker_runtime" in
+  let app_runtime_dir = Filename.dirname runtime_src in
+  let framework_runtime_dir = Filename.concat framework_root "worker_runtime" in
+  List.iter
+    (fun name ->
+      let app_src = Filename.concat app_runtime_dir name in
+      let framework_src = Filename.concat framework_runtime_dir name in
+      let src =
+        if Sys.file_exists app_src then Some app_src
+        else if Sys.file_exists framework_src then Some framework_src
+        else None
+      in
+      match src with
+      | Some src -> copy_file ~src ~dst:(Filename.concat deploy_runtime_dir name)
+      | None -> ())
+    runtime_support_files
+
 let stage ~deploy_dir ~wrangler_template_path ~manifest_path ~framework_root =
   match Deploy_manifest.parse ~manifest_path with
   | Error e -> Error e
@@ -148,7 +230,12 @@ let stage ~deploy_dir ~wrangler_template_path ~manifest_path ~framework_root =
         let assets_dst = Option.map target_from_manifest manifest.assets_dir in
         let bootstrap_dst = Option.map target_from_manifest manifest.bootstrap_module in
         let config_contents = read_file wrangler_template_path |> render_wrangler_config in
+        let durable_object_classes = extract_durable_object_classes config_contents in
+        copy_runtime_support_files ~runtime_src ~framework_root ~deploy_dir;
         copy_file ~src:runtime_src ~dst:runtime_dst;
+        append_durable_object_exports ~runtime_dst ~class_names:durable_object_classes;
+        write_file (Filename.concat deploy_dir "worker_runtime/development_manifest.mjs")
+          (render_development_manifest manifest);
         copy_file ~src:app_abi_src ~dst:app_abi_dst;
         option_iter2 (fun src dst -> copy_file ~src ~dst) generated_wasm_assets_src
           generated_wasm_assets_dst;

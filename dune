@@ -127,7 +127,9 @@
 (rule
  (alias runtest)
  (deps worker_runtime/index_test.mjs worker_runtime/index.mjs
+       worker_runtime/request_context.mjs worker_runtime/binding_rpc.mjs
        worker_runtime/compiled_runtime_bootstrap.mjs worker_runtime/app_abi.mjs
+       worker_runtime/development_manifest.mjs
        worker_runtime/compiled_js_runtime_backend.mjs worker_runtime/compiled_runtime_backend.mjs
        worker_runtime/generated_wasm_assets.mjs)
  (action (run node --test worker_runtime/index_test.mjs)))

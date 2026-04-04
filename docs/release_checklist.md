@@ -2,6 +2,7 @@
 
 - `dune build`
 - `dune runtest`
+- `node --test worker_runtime/index_test.mjs`
 - `bash scripts/check_mli.sh`
 - docs reviewed (`README.md`, architecture/deployment/features)
 - `KICKSTART.md` reviewed against the actual first-app flow
@@ -9,9 +10,13 @@
 - `.github/workflows/release-artifacts.yml` validated
 - `thunder doctor` validated after install
 - examples compile and smoke tests pass
+- `Thunder.Worker.*` wrappers build for KV, R2, D1, Queues, Workers AI, service bindings, Durable Objects, and generic invoke helpers
+- release notes reviewed for async handlers, `Response.Body`, binding wrappers, buffered-only limitations, and AI streaming deferral
+- Cloudflare provisioning notes reviewed: dev/test only, no automatic destroy, service bindings adopt-existing, account mismatch detection present
 - preview publish flow validated (changed + unchanged artifact paths)
 - preview smoke run validated for the default JS runtime path
 - preview smoke run validated for the explicit Wasm runtime path
 - production deploy confirmation guard verified
 - installed-binary generated app flow validated (`thunder new`, `dune build @worker-build`, `THUNDER_COMPILE_TARGET=wasm dune build @worker-build`, plain `dune build`)
+- generated-app fixture validated with `Thunder.Worker.*` wrapper compilation via `bash scripts/verify_generated_app_fixture.sh`
 - release assets published with binaries, framework bundle, and `checksums.txt`

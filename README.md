@@ -13,12 +13,17 @@ Thunder gives you:
 
 If you want to build an app with Thunder, start with `KICKSTART.md`.
 
+If you want to understand the current feature roadmap or add a new implementation
+plan, start with `PLAN.md`, which indexes the structured plans under `PLANS/`.
+
 ## Quick Start
 
 ```bash
 thunder new my-app
 cd my-app
 npm install
+thunder cloudflare provision
+thunder cloudflare status --pretty
 dune build
 ```
 
@@ -115,8 +120,18 @@ Set your Cloudflare account id in `wrangler.toml`:
 
 ```toml
 account_id = "<your-cloudflare-account-id>"
-compatibility_flags = ["nodejs_compat"]
+compatibility_flags = ["nodejs_als"]
 ```
+
+For supported dev/test flows, Thunder is moving toward a provisioning-first setup:
+
+```bash
+thunder cloudflare provision
+thunder cloudflare status
+thunder cloudflare status --pretty
+```
+
+`thunder cloudflare status` returns JSON by default for CI and agents. Use `--pretty` when you want a human-readable summary.
 
 Find your account id with:
 
@@ -254,6 +269,15 @@ The `examples/` directory contains reference examples for learning the API; thos
 - `examples/params`
 - `examples/middleware`
 - `examples/env_binding`
+- `examples/cloudflare_ai`
+- `examples/cloudflare_d1`
+- `examples/cloudflare_service`
+- `examples/cloudflare_storage`
+- `examples/cloudflare_coordination`
+- `examples/cloudflare_full_stack`
+- `examples/cloudflare_ingest_pipeline`
+- `examples/cloudflare_support_assistant`
+- `examples/zephyr_kv_inspector`
 
 ## Troubleshooting
 

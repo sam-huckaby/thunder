@@ -1,7 +1,12 @@
 let missing_artifacts artifacts =
   artifacts |> List.filter (fun path -> not (Sys.file_exists path))
 
-let run ~artifacts ~deploy_dir ~wrangler_template_path ~manifest_path
+let relative_to_workdir ~workdir path =
+  let prefix = workdir ^ "/" in
+  if String.starts_with ~prefix path then String.sub path (String.length prefix) (String.length path - String.length prefix)
+  else Filename.basename path
+
+let run ~artifacts ~deploy_dir ~wrangler_template_path ~manifest_path ~runtime_path:_
     ~framework_root =
   match Sys.getenv_opt "CONFIRM_PROD_DEPLOY" with
   | Some "1" ->
@@ -20,7 +25,13 @@ let run ~artifacts ~deploy_dir ~wrangler_template_path ~manifest_path
             with
             | Error e -> Error e
             | Ok staged ->
-                let result = Wrangler.deploy_prod ~config_path:staged.config_path in
+                let workdir = Filename.dirname staged.config_path in
+                let staged_runtime_path = relative_to_workdir ~workdir staged.runtime_path in
+                let result =
+                  Wrangler.deploy_prod ~workdir:(Some workdir)
+                    ~config_path:(Filename.basename staged.config_path)
+                    ~runtime_path:(Some staged_runtime_path)
+                in
                 match result.status with
                 | Unix.WEXITED 0 -> Ok "Production deploy completed."
                 | _ -> Error ("Production deploy failed.\n" ^ result.stderr))

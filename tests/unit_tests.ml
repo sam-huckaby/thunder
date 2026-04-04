@@ -8,6 +8,11 @@ let assert_equal_int msg expected actual =
     failwith
       (msg ^ " expected=" ^ string_of_int expected ^ " actual=" ^ string_of_int actual)
 
+let assert_equal_opt_string msg expected actual =
+  if expected <> actual then
+    let render = function None -> "None" | Some value -> "Some(" ^ value ^ ")" in
+    failwith (msg ^ " expected=" ^ render expected ^ " actual=" ^ render actual)
+
 let () =
   let k1 = Thunder_core.Context.key () in
   let k2 = Thunder_core.Context.key () in
@@ -72,6 +77,13 @@ let () =
   assert_true "response set-cookie" (List.length (Headers.get_all (Response.headers response) "set-cookie") = 1)
 
 let () =
+  let response = Response.bytes (Bytes.of_string "abc") in
+  let encoded = Runtime.encode_response response in
+  assert_equal_string "response bytes fallback string" "abc" (Response.body_string response);
+  assert_equal_string "encoded bytes body" "" encoded.body;
+  assert_equal_opt_string "encoded bytes base64" (Some "YWJj") encoded.body_base64
+
+let () =
   let route_handler = Handler.handler (fun _ -> Response.text "route") in
   let app =
     Router.router
@@ -85,9 +97,21 @@ let () =
   assert_equal_string "router dispatch" "route" (Response.body_string out)
 
 let () =
+  let async_handler = Handler.handler_async (fun _ -> Async.return (Response.text "async")) in
+  let req = Request.make ~meth:Method.GET ~url:"/" ~headers:Headers.empty ~body:"" () in
+  let out = Handler.run_async async_handler req |> Async.run in
+  assert_equal_string "handler_async" "async" (Response.body_string out)
+
+let () =
   let base = Handler.handler (fun _ -> failwith "boom") in
   let wrapped = Middleware.apply_many [ Middleware.recover; Middleware.logger () ] base in
   let req = Request.make ~meth:Method.GET ~url:"/" ~headers:Headers.empty ~body:"" () in
   let out = Handler.run wrapped req in
   assert_equal_int "recover middleware" 500 (Status.code (Response.status out));
+  let async_boom =
+    Handler.handler_async (fun _ -> raise (Failure "async boom") |> fun _ -> Async.return (Response.text "never"))
+  in
+  let async_wrapped = Middleware.recover async_boom in
+  let async_out = Handler.run_async async_wrapped req |> Async.run in
+  assert_equal_int "recover async middleware" 500 (Status.code (Response.status async_out));
   print_endline "unit_tests: ok"

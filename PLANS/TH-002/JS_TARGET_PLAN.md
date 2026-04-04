@@ -1,4 +1,22 @@
-Current active phase: complete - JS/Wasm dual-target roadmap implemented for current release scope
+---
+id: TH-002
+title: Thunder JS Target Plan
+status: done
+type: feature
+priority: high
+owner: null
+created: 2026-03-28
+updated: 2026-03-28
+related_plans:
+  - TH-000
+  - TH-001
+depends_on: []
+blocks: []
+labels:
+  - js-target
+  - wasm
+  - runtime-targets
+---
 
 # Thunder JS Target Plan
 

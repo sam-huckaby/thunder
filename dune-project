@@ -20,6 +20,10 @@
  (synopsis "Thunder Cloudflare Worker adapter"))
 
 (package
+ (name thunder_worker_js)
+ (synopsis "Thunder JS-only Worker binding wrappers"))
+
+(package
  (name thunder)
  (synopsis "Thunder top-level API"))
 

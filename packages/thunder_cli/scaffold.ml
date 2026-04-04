@@ -123,64 +123,68 @@ let root_dune_template () =
    worker_runtime/generated_wasm_assets.mjs
    worker/entry.bc))
 
-(rule
- (alias preview-publish)
- (deps
-  (alias worker-build)
-  %{dep:wrangler.toml}
-  %{dep:dist/worker/thunder_runtime.mjs}
-   %{dep:dist/worker/manifest.json}
-   %{dep:worker_runtime/index.mjs}
-   %{dep:worker_runtime/app_abi.mjs}
-   %{dep:worker_runtime/compiled_js_runtime_backend.mjs}
-   %{dep:worker_runtime/compiled_runtime_backend.mjs}
-   %{dep:worker_runtime/compiled_runtime_bootstrap.mjs}
-   %{dep:worker_runtime/generated_wasm_assets.mjs}
-  %{exe:vendor/thunder-framework/packages/thunder_cli/main.exe})
- (locks thunder_preview_publish)
-(action
-  (chdir %{workspace_root}
-    (setenv THUNDER_FRAMEWORK_ROOT %{workspace_root}/vendor/thunder-framework
-     (run %{exe:vendor/thunder-framework/packages/thunder_cli/main.exe}
-     preview-publish
-     --metadata
-     %{workspace_root}/../../.thunder/preview.json
+ (rule
+  (alias preview-publish)
+  (deps
+   (alias worker-build)
+   %{dep:wrangler.toml}
+   %{dep:dist/worker/thunder_runtime.mjs}
+    %{dep:dist/worker/manifest.json}
+    %{dep:worker_runtime/index.mjs}
+    %{dep:worker_runtime/request_context.mjs}
+    %{dep:worker_runtime/binding_rpc.mjs}
+    %{dep:worker_runtime/app_abi.mjs}
+    %{dep:worker_runtime/development_manifest.mjs}
+    %{dep:worker_runtime/compiled_js_runtime_backend.mjs}
+    %{dep:worker_runtime/compiled_runtime_backend.mjs}
+    %{dep:worker_runtime/compiled_runtime_bootstrap.mjs}
+    %{dep:worker_runtime/generated_wasm_assets.mjs}
+   %{bin:thunder})
+  (locks thunder_preview_publish)
+ (action
+   (chdir %{workspace_root}
+      (run thunder
+      preview-publish
+      --metadata
+      %{workspace_root}/../../.thunder/preview.json
      --wrangler-template
       wrangler.toml
       --deploy-dir
       deploy
       --manifest-path
-      %{dep:dist/worker/manifest.json}
-      --runtime
-      worker_runtime/index.mjs)))))
+       %{dep:dist/worker/manifest.json}
+       --runtime
+       worker_runtime/index.mjs))))
 
-(rule
- (alias deploy-prod)
- (deps
-  (alias worker-build)
-  %{dep:wrangler.toml}
-  %{dep:dist/worker/thunder_runtime.mjs}
-   %{dep:dist/worker/manifest.json}
-   %{dep:worker_runtime/index.mjs}
-   %{dep:worker_runtime/app_abi.mjs}
-   %{dep:worker_runtime/compiled_js_runtime_backend.mjs}
-   %{dep:worker_runtime/compiled_runtime_backend.mjs}
-   %{dep:worker_runtime/compiled_runtime_bootstrap.mjs}
-   %{dep:worker_runtime/generated_wasm_assets.mjs}
-  %{exe:vendor/thunder-framework/packages/thunder_cli/main.exe})
-(action
-  (chdir %{workspace_root}
-    (setenv THUNDER_FRAMEWORK_ROOT %{workspace_root}/vendor/thunder-framework
-     (run %{exe:vendor/thunder-framework/packages/thunder_cli/main.exe}
-     deploy-prod
-     --wrangler-template
-      wrangler.toml
+ (rule
+  (alias deploy-prod)
+  (deps
+   (alias worker-build)
+   %{dep:wrangler.toml}
+   %{dep:dist/worker/thunder_runtime.mjs}
+    %{dep:dist/worker/manifest.json}
+    %{dep:worker_runtime/index.mjs}
+    %{dep:worker_runtime/request_context.mjs}
+    %{dep:worker_runtime/binding_rpc.mjs}
+    %{dep:worker_runtime/app_abi.mjs}
+    %{dep:worker_runtime/development_manifest.mjs}
+    %{dep:worker_runtime/compiled_js_runtime_backend.mjs}
+    %{dep:worker_runtime/compiled_runtime_backend.mjs}
+    %{dep:worker_runtime/compiled_runtime_bootstrap.mjs}
+    %{dep:worker_runtime/generated_wasm_assets.mjs}
+   %{bin:thunder})
+ (action
+   (chdir %{workspace_root}
+      (run thunder
+      deploy-prod
+      --wrangler-template
+       wrangler.toml
       --deploy-dir
       deploy
       --manifest-path
-      %{dep:dist/worker/manifest.json}
-      --runtime
-      worker_runtime/index.mjs)))))
+       %{dep:dist/worker/manifest.json}
+       --runtime
+       worker_runtime/index.mjs))))
 
 (alias
  (name default)
@@ -209,16 +213,20 @@ let package_json_template ~project_name =
 
 let wrangler_template ~project_name =
   Printf.sprintf
-    "name = \"%s\"\nmain = \"worker_runtime/index.mjs\"\naccount_id = \"<your-cloudflare-account-id>\"\ncompatibility_date = \"2026-03-12\"\ncompatibility_flags = [\"nodejs_compat\"]\nfind_additional_modules = true\nworkers_dev = true\n\n[observability]\nenabled = true\n"
+    "name = \"%s\"\nmain = \"worker_runtime/index.mjs\"\naccount_id = \"<your-cloudflare-account-id>\"\ncompatibility_date = \"2026-03-12\"\ncompatibility_flags = [\"nodejs_als\"]\nfind_additional_modules = true\nworkers_dev = true\n\n[observability]\nenabled = true\n"
     project_name
 
 let thunder_json_template ~framework_root =
   Printf.sprintf
-    "{\n  \"compile_target\": \"js\",\n  \"app_module\": \"Routes\",\n  \"worker_entry_path\": \"worker/entry.ml\",\n  \"compiled_runtime_path\": \"dist/worker/thunder_runtime.mjs\",\n  \"wrangler_template_path\": \"wrangler.toml\",\n  \"deploy_dir\": \"deploy\",\n  \"framework_root\": \"%s\"\n}\n"
+    "{\n  \"compile_target\": \"js\",\n  \"app_module\": \"Routes\",\n  \"worker_entry_path\": \"worker/entry.ml\",\n  \"compiled_runtime_path\": \"dist/worker/thunder_runtime.mjs\",\n  \"wrangler_template_path\": \"wrangler.toml\",\n  \"deploy_dir\": \"deploy\",\n  \"framework_root\": \"%s\",\n  \"cloudflare\": {\n    \"mode\": \"dev_test\",\n    \"bootstrap_worker\": true,\n    \"resources\": {\n      \"kv\": [{ \"binding\": \"MY_KV\", \"name\": \"replace-me-kv\" }],\n      \"r2\": [{ \"binding\": \"FILES\", \"bucket\": \"replace-me-files\" }],\n      \"d1\": [{ \"binding\": \"DB\", \"name\": \"replace-me-db\" }],\n      \"queues\": [{ \"binding\": \"JOBS\", \"queue\": \"replace-me-jobs\" }],\n      \"ai\": [{ \"binding\": \"AI\" }],\n      \"durable_objects\": [{ \"binding\": \"MY_DO\", \"class_name\": \"MyDurableObject\" }],\n      \"services\": [{ \"binding\": \"API\", \"service\": \"replace-me-service\" }]\n    }\n  }\n}\n"
     framework_root
 
 let app_routes_template () =
-  {routes|let app =
+  {routes|let bindings_overview _ =
+  Thunder.json
+    {|{"bindings":["Thunder.Worker.KV","Thunder.Worker.R2","Thunder.Worker.D1","Thunder.Worker.Queues","Thunder.Worker.AI","Thunder.Worker.Service","Thunder.Worker.Durable_object","Thunder.Worker.Generic"]}|}
+
+let app =
   Thunder.router
     [
       Thunder.get "/"
@@ -293,6 +301,7 @@ let app_routes_template () =
 |html}));
       Thunder.get "/health"
         (Thunder.handler (fun _ -> Thunder.json "{\"ok\":true}"));
+      Thunder.get "/bindings" (Thunder.handler bindings_overview);
     ]
 |routes}
 
@@ -320,7 +329,7 @@ let gitignore_template () =
 
 let readme_template ~project_name =
   Printf.sprintf
-    "# %s\n\nThis app was scaffolded by Thunder.\n\n## Current status\n\nThunder currently links or copies framework internals into `vendor/thunder-framework` so the app can build. When Thunder is installed through the current installer flow, that path is expected to be a local link into the installed framework home.\n\n## Where to edit app code\n\n- `app/routes.ml` for routes and responses\n- `app/middleware.ml` for app middleware\n- `worker/entry.ml` is the tiny Worker export wrapper and should rarely need edits\n\n## Useful commands\n\n- `npm install`\n- `dune build`\n- `dune runtest`\n- `dune exec ./bin/main.exe`\n- `THUNDER_SMOKE_WORKER_NAME=\"your-existing-worker\" bash scripts/preview_smoke.sh js`\n- `THUNDER_COMPILE_TARGET=wasm THUNDER_SMOKE_WORKER_NAME=\"your-existing-worker\" bash scripts/preview_smoke.sh wasm`\n\n## Preview metadata\n\nThunder writes preview state to app-root `.thunder/preview.json`.\n\nUseful fields include:\n\n- `artifact_hash`\n- `last_version_id`\n- `last_preview_url`\n"
+    "# %s\n\nThis app was scaffolded by Thunder.\n\n## Current status\n\nThunder currently links or copies framework internals into `vendor/thunder-framework` so the app can build. When Thunder is installed through the current installer flow, that path is expected to be a local link into the installed framework home.\n\n## Where to edit app code\n\n- `app/routes.ml` for routes and responses\n- `app/middleware.ml` for app middleware\n- `worker/entry.ml` is the tiny Worker export wrapper and should rarely need edits\n\n## Cloudflare bindings through Thunder\n\nUse `Thunder.Worker.*` when you want Cloudflare-specific primitives in app code. Current wrappers include:\n\n- `Thunder.Worker.KV`\n- `Thunder.Worker.R2`\n- `Thunder.Worker.D1`\n- `Thunder.Worker.Queues`\n- `Thunder.Worker.AI`\n- `Thunder.Worker.Service`\n- `Thunder.Worker.Durable_object`\n- `Thunder.Worker.Generic`\n\nIf your app uses async binding wrappers, prefer `compatibility_flags = [\"nodejs_als\"]` in `wrangler.toml`.\n\n## First live setup\n\nAfter `npm install`, use Thunder's provisioning flow before your first live test:\n\n- `thunder cloudflare provision`\n- `thunder cloudflare status`\n- `thunder cloudflare status --pretty`\n\nThese commands create or wire supported dev/test resources, bootstrap the Worker, and let you verify the resulting state.\n\n## Useful commands\n\n- `npm install`\n- `thunder cloudflare provision`\n- `thunder cloudflare status`\n- `thunder cloudflare status --pretty`\n- `dune build`\n- `dune runtest`\n- `dune exec ./bin/main.exe`\n- `THUNDER_SMOKE_WORKER_NAME=\"your-existing-worker\" bash scripts/preview_smoke.sh js`\n- `THUNDER_COMPILE_TARGET=wasm THUNDER_SMOKE_WORKER_NAME=\"your-existing-worker\" bash scripts/preview_smoke.sh wasm`\n\n## Preview metadata\n\nThunder writes preview state to app-root `.thunder/preview.json`.\n\nUseful fields include:\n\n- `artifact_hash`\n- `last_version_id`\n- `last_preview_url`\n"
     project_name
 
 let test_dune_template ~package_name =
@@ -377,7 +386,9 @@ let copy_runtime_bundle ~destination ~framework_root =
       copy_tree
         ~src:(Filename.concat framework_root (Filename.concat "worker_runtime" name))
         ~dst:(Filename.concat worker_runtime_root name))
-    [ "index.mjs"; "app_abi.mjs"; "compiled_runtime_backend.mjs";
+    [ "index.mjs"; "request_context.mjs"; "binding_rpc.mjs"; "app_abi.mjs";
+      "development_manifest.mjs";
+      "compiled_js_runtime_backend.mjs"; "compiled_runtime_backend.mjs";
       "compiled_runtime_bootstrap.mjs" ]
 
 let write_project ~destination ~project_name ~must_be_absent =

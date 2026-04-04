@@ -1,4 +1,22 @@
-Current active phase: complete - frameworkification roadmap implemented for current release scope
+---
+id: TH-001
+title: Thunder Framework Plan
+status: done
+type: feature
+priority: high
+owner: null
+created: 2026-03-28
+updated: 2026-03-28
+related_plans:
+  - TH-000
+  - TH-002
+depends_on: []
+blocks: []
+labels:
+  - framework
+  - scaffolding
+  - distribution
+---
 
 # Thunder Framework Plan
 

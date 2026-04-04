@@ -23,7 +23,14 @@ export const THUNDER_ABI_INIT_CAPABILITIES = [
   "buffered_body",
   "env_bindings",
   "ctx_features",
+  "async_handlers",
+  "request_context_raw_env",
+  "request_context_raw_ctx",
+  "binding_rpc",
+  "binary_response_payload",
 ];
+
+const REQUEST_CONTEXT_STRATEGIES = ["auto", "als", "map"];
 
 function resolveRelativeModuleUrl(relativePath) {
   try {
@@ -69,6 +76,11 @@ function normalizeInitPayload(initPayload = {}) {
     expected_capabilities: Array.isArray(initPayload.expected_capabilities)
       ? initPayload.expected_capabilities.filter((value) => typeof value === "string")
       : [],
+    request_context_strategy: REQUEST_CONTEXT_STRATEGIES.includes(
+      initPayload.request_context_strategy
+    )
+      ? initPayload.request_context_strategy
+      : "auto",
   };
 }
 
@@ -78,8 +90,21 @@ function makeInitResult(initPayload, backendKind) {
     app_id: initPayload.app_id,
     asset_base_url: initPayload.asset_base_url,
     capabilities: [...THUNDER_ABI_INIT_CAPABILITIES],
+    request_context_strategy: initPayload.request_context_strategy,
     backend_kind: backendKind,
   };
+}
+
+function validateExpectedCapabilities(initPayload) {
+  const unsupported = initPayload.expected_capabilities.filter(
+    (capability) => !THUNDER_ABI_INIT_CAPABILITIES.includes(capability)
+  );
+
+  if (unsupported.length > 0) {
+    throw new Error(
+      `Thunder ABI init is missing required capabilities: ${unsupported.join(", ")}`
+    );
+  }
 }
 
 function resolveOverrideBackend() {
@@ -126,6 +151,7 @@ async function getInitializedState({ initPayload }) {
       `Unsupported Thunder ABI version: ${normalizedPayload.abi_version}`
     );
   }
+  validateExpectedCapabilities(normalizedPayload);
 
   if (!initializedStatePromise) {
     initializedStatePromise = (async () => {
@@ -185,10 +211,12 @@ export function resetForTests() {
 
 export const __internal = {
   manifest,
+  REQUEST_CONTEXT_STRATEGIES,
   resolveRelativeModuleUrl,
   defaultAssetBaseUrl,
   normalizeInitPayload,
   makeInitResult,
+  validateExpectedCapabilities,
   resolveManifestRuntimeKind,
   resolveOverrideBackend,
   resolveRuntimeBackend,
